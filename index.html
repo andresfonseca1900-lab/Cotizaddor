@@ -669,6 +669,7 @@
       <label class="importar-label chico" style="margin-left:8px;">⬆ Cargar lista de precios (CSV/JSON)
         <input type="file" id="inputCatalogo" accept=".csv,.json" style="display:none;">
       </label>
+      <button class="secondary chico" id="btnVaciarCatalogo" style="margin-left:8px;">🗑 Vaciar catálogo de productos</button>
     </div>
   </div>
 
@@ -1079,6 +1080,13 @@ document.getElementById('inputCatalogo').addEventListener('change', (e)=>{
 });
 
 poblarDatalists();
+
+document.getElementById('btnVaciarCatalogo').addEventListener('click', ()=>{
+  if(!confirm('Esto borra el catálogo de productos guardado en este navegador (nombres y precios para autocompletar). Tu Google Sheet no se toca. ¿Continuar?')) return;
+  guardarCatalogoProductos([]);
+  poblarDatalists();
+  alert('Catálogo local vaciado. Ahora vuelve a cargar tu archivo CSV limpio.');
+});
 
 /* ================== MÓDULO: revisar correo → candidatos → cotización ================== */
 
