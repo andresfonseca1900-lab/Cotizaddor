@@ -722,10 +722,14 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const inputCantidad = tr.querySelector('.cantidad');
   inputPrecio.addEventListener('input', recalcular);
   inputCantidad.addEventListener('input', recalcular);
-  inputProducto.addEventListener('input', ()=>{
-    const match = obtenerCatalogoProductos().find(p => p.nombre.toLowerCase() === inputProducto.value.trim().toLowerCase());
+  const intentarAutocompletarPrecio = ()=>{
+    const buscado = normalizarTexto(inputProducto.value);
+    const match = obtenerCatalogoProductos().find(p => normalizarTexto(p.nombre) === buscado);
     if(match){ inputPrecio.value = match.precio; recalcular(); }
-  });
+  };
+  inputProducto.addEventListener('input', intentarAutocompletarPrecio);
+  inputProducto.addEventListener('change', intentarAutocompletarPrecio);
+  inputProducto.addEventListener('blur', intentarAutocompletarPrecio);
   recalcular();
 }
 
