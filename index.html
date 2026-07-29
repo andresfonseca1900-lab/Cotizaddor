@@ -1022,11 +1022,23 @@ document.getElementById('inputCatalogo').addEventListener('change', (e)=>{
         const lineas = reader.result.split(/\r?\n/).filter(l => l.trim() !== '');
         const inicio = /precio/i.test(lineas[0]) ? 1 : 0; // saltar encabezado si existe
         for(let i=inicio;i<lineas.length;i++){
-          const partes = lineas[i].split(',');
-          if(partes.length < 2) continue;
-          const precio = parseNumero(partes[partes.length-1]);
-          const nombre = partes.slice(0, partes.length-1).join(',').trim();
-          if(nombre) nuevos.push({nombre, precio});
+          const linea = lineas[i];
+          let nombre, precioTexto;
+          // caso normal: exactamente "nombre,precio" (o con comillas bien formadas)
+          const camposComillas = linea.match(/^"(.*)"\s*,\s*([^,]+)$/) || linea.match(/^([^,]*[^",]),\s*([^,]+)$/);
+          if(camposComillas){
+            nombre = camposComillas[1].replace(/""/g,'"').trim();
+            precioTexto = camposComillas[2].trim();
+          } else {
+            // caso roto: todo quedó en un solo campo (comillas corrompidas por Excel) -> tomar el último número como precio
+            const limpio = linea.replace(/^"|"$/g,'').replace(/""/g,'"');
+            const idx = limpio.lastIndexOf(',');
+            if(idx === -1) continue;
+            nombre = limpio.slice(0, idx).trim();
+            precioTexto = limpio.slice(idx+1).trim();
+          }
+          const precio = parseNumero(precioTexto);
+          if(nombre && precio) nuevos.push({nombre, precio});
         }
       }
       let catalogo = obtenerCatalogoProductos();
