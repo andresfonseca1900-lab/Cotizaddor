@@ -421,12 +421,13 @@
   .toolbar button.chico{padding:7px 12px; font-size:11.5px;}
   .importar-label{
     display:inline-flex; align-items:center;
-    background:transparent; color:var(--navy);
-    border:1px solid var(--navy); border-radius:2px;
+    background:var(--brass); color:#1a1a1a;
+    border:1px solid var(--brass); border-radius:2px;
     padding:7px 12px; font-family:'Oswald',sans-serif; font-size:11.5px;
-    letter-spacing:.08em; text-transform:uppercase; cursor:pointer; font-weight:600;
+    letter-spacing:.08em; text-transform:uppercase; cursor:pointer; font-weight:700;
+    box-shadow:0 1px 3px rgba(0,0,0,.15);
   }
-  .importar-label:hover{background:var(--navy); color:#fff;}
+  .importar-label:hover{background:var(--navy); color:#fff; border-color:var(--navy);}
 
   .modal-overlay{
     display:none;
@@ -544,6 +545,7 @@
     .footer{flex-direction:column; align-items:stretch;}
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
@@ -555,6 +557,9 @@
   <button class="accent" id="btnImprimir">Imprimir / Guardar PDF</button>
   <button class="secondary" id="btnAbrirCorreo">📧 Revisar solicitud</button>
   <button class="secondary chico" id="btnConfigBackend" title="Conectar con Google Sheet / Gmail">⚙ Backend</button>
+  <label class="secondary chico importar-label" style="margin-left:4px;">📄 Cargar cotización (PDF)
+    <input type="file" id="inputPdfCotizacion" accept=".pdf" style="display:none;">
+  </label>
 </div>
 
 <div id="modalCorreo" class="modal-overlay">
@@ -706,6 +711,18 @@ function parseNumero(str){
   return isNaN(n) ? 0 : n;
 }
 
+function forzarMayusculas(el){
+  el.addEventListener('input', ()=>{
+    const pos = el.selectionStart, pos2 = el.selectionEnd;
+    el.value = el.value.toUpperCase();
+    try{ el.setSelectionRange(pos,pos2); }catch(e){}
+  });
+}
+['cliente','oferta'].forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) forzarMayusculas(el);
+});
+
 function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const tbody = document.getElementById('cuerpoTabla');
   const tr = document.createElement('tr');
@@ -722,6 +739,8 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const inputCantidad = tr.querySelector('.cantidad');
   inputPrecio.addEventListener('input', recalcular);
   inputCantidad.addEventListener('input', recalcular);
+  forzarMayusculas(inputProducto);
+  inputProducto.addEventListener('focus', ()=> inputProducto.select());
   const intentarAutocompletarPrecio = ()=>{
     const buscado = normalizarTexto(inputProducto.value);
     const match = obtenerCatalogoProductos().find(p => normalizarTexto(p.nombre) === buscado);
@@ -768,12 +787,7 @@ document.getElementById('btnNueva').addEventListener('click', ()=>{
   crearFila();
 });
 
-crearFila("MULTIMETRO UT33C+", 76570, 1);
-crearFila("MANGUERA NEUMATICA 8MM", 2252, 20);
-crearFila("MANGUERA NEUMATICA 6MM", 1600, 20);
-crearFila("FILTRO EN Y INOX ROSCADO 3\"", 410995, 2);
-crearFila("HOMBRESOLO RECTO 10\" SATA", 41850, 1);
-crearFila("ALICATE ELECTRICISTA 8\" SATA", 55760, 1);
+crearFila();
 
 /* ---------- GUARDADO DE COTIZACIONES (localStorage) ---------- */
 const STORAGE_KEY = 'aid_cotizaciones_v1';
@@ -842,6 +856,42 @@ function guardarCotizacionActual(){
   }
 }
 
+function siguienteNumCot(){
+  const lista = obtenerGuardadas();
+  const actual = (document.getElementById('numCot').innerText || '').trim();
+  let mejor = {prefijo:'AID', ancho:5, num:0};
+  [...lista.map(c=>c.numCot), actual].forEach(nc=>{
+    const m = (nc||'').match(/^(\D*)(\d+)\s*$/);
+    if(m){
+      const num = parseInt(m[2],10);
+      if(num > mejor.num) mejor = {prefijo:m[1], ancho:m[2].length, num};
+    }
+  });
+  return mejor.prefijo + String(mejor.num + 1).padStart(mejor.ancho,'0');
+}
+
+function copiarCotizacion(numCot){
+  const lista = obtenerGuardadas();
+  const datos = lista.find(c => c.numCot === numCot);
+  if(!datos) return;
+  const nuevoNumero = siguienteNumCot();
+  document.getElementById('numCot').innerText = nuevoNumero;
+  const hoy = new Date();
+  document.getElementById('fecha').innerText = String(hoy.getDate()).padStart(2,'0') + '/' + String(hoy.getMonth()+1).padStart(2,'0') + '/' + hoy.getFullYear();
+  document.getElementById('cliente').value = datos.cliente;
+  document.getElementById('nit').value = datos.nit;
+  document.getElementById('telefono').value = datos.telefono;
+  document.getElementById('correo').value = datos.correo;
+  document.getElementById('efectivo').checked = !!datos.efectivo;
+  document.getElementById('credito').value = datos.credito || '';
+  document.getElementById('entrega').value = datos.entrega || '';
+  document.getElementById('oferta').value = datos.oferta || '';
+  document.getElementById('cuerpoTabla').innerHTML = '';
+  (datos.filas || []).forEach(f => crearFila(f.producto, f.precio, f.cantidad));
+  cerrarModal();
+  alert('Se copió la cotización ' + numCot + ' como ' + nuevoNumero + '. Revísala y dale "Guardar cotización" para dejarla creada.');
+}
+
 function cargarCotizacion(numCot){
   const lista = obtenerGuardadas();
   const datos = lista.find(c => c.numCot === numCot);
@@ -889,6 +939,7 @@ function renderListaGuardadas(){
       </div>
       <div class="acciones">
         <button class="btn-cargar" onclick="cargarCotizacion('${c.numCot.replace(/'/g,"\\'")}')">Abrir</button>
+        <button class="btn-cargar" style="background:var(--brass); color:#1a1a1a;" onclick="copiarCotizacion('${c.numCot.replace(/'/g,"\\'")}')">Copiar</button>
         <button class="btn-eliminar" onclick="eliminarCotizacion('${c.numCot.replace(/'/g,"\\'")}')">Eliminar</button>
       </div>
     </div>
@@ -1092,11 +1143,22 @@ document.getElementById('btnVaciarCatalogo').addEventListener('click', ()=>{
   alert('Catálogo local vaciado. Ahora vuelve a cargar tu archivo CSV limpio.');
 });
 
-/* ================== MÓDULO: revisar correo → candidatos → cotización ================== */
+/* ================== MÓDULO: verificación de referencia (catálogo + correo) ================== */
 
 const BACKEND_URL_KEY = 'aid_backend_url';
 
 function obtenerBackendUrl(){ return localStorage.getItem(BACKEND_URL_KEY) || ''; }
+
+async function sincronizarProductoBackend(producto){
+  const url = obtenerBackendUrl();
+  if(!url) return;
+  try{
+    await fetch(url, {
+      method:'POST',
+      body: JSON.stringify({ action:'guardarProducto', payload: producto })
+    });
+  }catch(e){ /* si falla, el producto igual queda guardado localmente */ }
+}
 
 document.getElementById('btnConfigBackend').addEventListener('click', ()=>{
   const actual = obtenerBackendUrl();
@@ -1106,10 +1168,14 @@ document.getElementById('btnConfigBackend').addEventListener('click', ()=>{
   alert(nueva.trim() ? 'Backend conectado.' : 'Backend desconectado.');
 });
 
+let fechaCorreoSeleccionado = null; // fecha real del correo activo, o null si se pegó texto a mano
+
 document.getElementById('btnAbrirCorreo').addEventListener('click', ()=>{
   document.getElementById('listaCandidatos').innerHTML = '';
   document.getElementById('listaCorreosGmail').innerHTML = '';
   document.getElementById('textoCorreoPegado').value = '';
+  fechaCorreoSeleccionado = null;
+  candidatosActuales = [];
   document.getElementById('modalCorreo').classList.add('abierto');
 });
 document.getElementById('btnCerrarModalCorreo').addEventListener('click', ()=>{
@@ -1148,11 +1214,17 @@ document.getElementById('btnBuscarGmail').addEventListener('click', async ()=>{
       el.addEventListener('click', ()=>{
         const c = json.data[Number(el.dataset.idx)];
         document.getElementById('textoCorreoPegado').value = c.cuerpo || '';
+        fechaCorreoSeleccionado = c.fecha; // fecha REAL del correo, no la de hoy
       });
     });
   }catch(err){
     cont.innerHTML = '<div class="modal-vacio">No se pudo conectar al backend. Revisa la URL o vuelve a intentar.</div>';
   }
+});
+
+// si el usuario pega texto a mano (en vez de traerlo de Gmail), no hay fecha real de correo
+document.getElementById('textoCorreoPegado').addEventListener('input', ()=>{
+  fechaCorreoSeleccionado = null;
 });
 
 function normalizarTexto(s){
@@ -1172,6 +1244,14 @@ function puntajeCoincidencia(consulta, producto){
   return hits / tokens.length;
 }
 
+// intenta encontrar un precio mencionado en la propia línea del correo (ej: "$45.000", "45000", "valor 45.000")
+function extraerPrecioDeLinea(linea){
+  const m = linea.match(/(?:\$|vr\.?|valor|precio)?\s?([0-9]{1,3}(?:[.,][0-9]{3}){1,3}|[0-9]{4,})/i);
+  if(!m) return null;
+  const precio = parseNumero(m[1]);
+  return precio > 0 ? precio : null;
+}
+
 function badgeVigencia(fecha){
   if(!fecha) return '<span class="cand-badge gris">sin dato</span>';
   const dias = Math.floor((Date.now() - new Date(fecha).getTime()) / 86400000);
@@ -1179,6 +1259,21 @@ function badgeVigencia(fecha){
   if(dias > 45){ clase = 'rojo'; texto = 'desactualizado'; }
   else if(dias > 15){ clase = 'ambar'; texto = 'revisar'; }
   return `<span class="cand-badge ${clase}">${texto} · ${dias}d</span>`;
+}
+
+function badgeOrigen(c){
+  if(c.origen === 'correo'){
+    const f = c.fecha ? new Date(c.fecha).toLocaleDateString('es-CO') : 'sin fecha';
+    return `<span class="cand-badge ambar">📧 Correo · ${f}</span>`;
+  }
+  if(c.origen === 'pdf'){
+    const f = c.fecha ? new Date(c.fecha).toLocaleDateString('es-CO') : 'sin fecha';
+    return `<span class="cand-badge ambar">📄 PDF anterior · ${f}</span>`;
+  }
+  if(c.origen === 'catalogo'){
+    return `<span class="cand-badge verde">🏷 Catálogo</span> ${badgeVigencia(c.fecha)}`;
+  }
+  return `<span class="cand-badge gris">⚠ Sin coincidencia</span>`;
 }
 
 let candidatosActuales = [];
@@ -1194,10 +1289,24 @@ document.getElementById('btnAnalizarTexto').addEventListener('click', ()=>{
       const s = puntajeCoincidencia(linea, p);
       if(s > mejorScore){ mejorScore = s; mejor = p; }
     });
-    if(mejor && mejorScore >= 0.5){
-      return { textoOriginal: linea, nombre: mejor.nombre, precio: mejor.precio, fecha: mejor.fecha, cantidad: 1, sinMatch: false };
+    const precioEnLinea = extraerPrecioDeLinea(linea);
+
+    if(precioEnLinea && fechaCorreoSeleccionado){
+      // el propio correo trae un precio explícito: se prioriza ese origen
+      return {
+        textoOriginal: linea,
+        nombre: mejor ? mejor.nombre : linea.replace(/[$0-9.,]/g,'').trim() || linea,
+        precio: precioEnLinea,
+        fecha: fechaCorreoSeleccionado,
+        cantidad: 1,
+        origen: 'correo',
+        sinMatch: !mejor
+      };
     }
-    return { textoOriginal: linea, nombre: linea, precio: 0, fecha: null, cantidad: 1, sinMatch: true };
+    if(mejor && mejorScore >= 0.5){
+      return { textoOriginal: linea, nombre: mejor.nombre, precio: mejor.precio, fecha: mejor.fecha, cantidad: 1, origen: 'catalogo', sinMatch: false };
+    }
+    return { textoOriginal: linea, nombre: linea, precio: precioEnLinea || 0, fecha: null, cantidad: 1, origen: null, sinMatch: true };
   });
   renderCandidatos();
 });
@@ -1211,12 +1320,12 @@ function renderCandidatos(){
   cont.innerHTML = candidatosActuales.map((c, i) => `
     <div class="cand-card ${c.sinMatch ? 'sin-match' : ''}" data-idx="${i}">
       <div class="cand-texto">"${c.textoOriginal.replace(/</g,'&lt;')}"</div>
-      <div class="cand-nombre">${c.sinMatch ? '⚠ Sin coincidencia — revisa el nombre y precio' : '→ ' + c.nombre}</div>
+      <div class="cand-nombre">${c.sinMatch ? '⚠ Sin coincidencia en catálogo — revisa nombre y precio' : '→ ' + c.nombre}</div>
       <div class="cand-fila">
-        ${c.sinMatch ? `<label>Nombre</label><input class="cand-nombre-input" style="width:200px;" value="${c.nombre.replace(/"/g,'&quot;')}">` : ''}
+        ${c.sinMatch ? `<label>Nombre</label><input class="cand-nombre-input" style="width:200px; text-transform:uppercase;" value="${c.nombre.toUpperCase().replace(/"/g,'&quot;')}">` : ''}
         <label>Precio</label><input class="cand-precio-input" value="${c.precio}">
         <label>Cant.</label><input class="cand-cant-input" style="width:56px;" value="${c.cantidad}">
-        ${c.sinMatch ? '' : badgeVigencia(c.fecha)}
+        ${badgeOrigen(c)}
         <div class="cand-acciones">
           <button class="btn-descartar">Descartar</button>
           <button class="btn-aprobar">Aprobar</button>
@@ -1236,15 +1345,145 @@ function renderCandidatos(){
       const precio = parseNumero(card.querySelector('.cand-precio-input').value);
       const cantidad = parseNumero(card.querySelector('.cand-cant-input').value) || 1;
       const nombreInput = card.querySelector('.cand-nombre-input');
-      const nombreFinal = nombreInput ? nombreInput.value.trim() : c.nombre;
+      const nombreFinal = (nombreInput ? nombreInput.value : c.nombre).trim().toUpperCase();
+
       crearFila(nombreFinal, precio, cantidad);
-      upsertProducto({ nombre: nombreFinal, precio: precio, fecha: new Date().toISOString() });
+
+      // la referencia queda enlazada al catálogo (local + Google Sheet) para la próxima vez
+      const fechaGuardar = c.origen === 'correo' ? c.fecha : new Date().toISOString();
+      const productoGuardado = { nombre: nombreFinal, precio: precio, fecha: fechaGuardar };
+      upsertProducto(productoGuardado);
+      sincronizarProductoBackend(productoGuardado);
       poblarDatalists();
+
       candidatosActuales.splice(idx, 1);
       renderCandidatos();
     });
   });
 }
+
+/* ---------- Cargar cotización desde un PDF anterior ---------- */
+
+if(window['pdfjsLib']){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+function agruparLineasPorPosicion(items){
+  // agrupa los fragmentos de texto del PDF por su posición vertical (misma fila)
+  const filas = [];
+  items.forEach(it=>{
+    const y = Math.round(it.transform[5]);
+    let fila = filas.find(f => Math.abs(f.y - y) < 3);
+    if(!fila){ fila = {y, partes:[]}; filas.push(fila); }
+    fila.partes.push({x: it.transform[4], texto: it.str});
+  });
+  filas.sort((a,b)=> b.y - a.y); // de arriba hacia abajo
+  return filas.map(f => f.partes.sort((a,b)=>a.x-b.x).map(p=>p.texto).join(' ').replace(/\s+/g,' ').trim())
+    .filter(l => l.length > 0);
+}
+
+function parsearLineaProducto(linea){
+  const tokens = linea.trim().split(/\s+/);
+  if(tokens.length < 4) return null;
+  const esNumero = t => /^[\d.,]+$/.test(t) && parseNumero(t) > 0;
+  const ultimos3 = tokens.slice(-3);
+  if(ultimos3.every(esNumero)){
+    const producto = tokens.slice(0, -3).join(' ').toUpperCase();
+    const precio = parseNumero(ultimos3[0]);
+    const cantidad = parseNumero(ultimos3[1]);
+    if(producto.length > 1 && precio > 0 && cantidad > 0){
+      return {producto, precio, cantidad};
+    }
+  }
+  return null;
+}
+
+document.getElementById('inputPdfCotizacion').addEventListener('change', async (e)=>{
+  const archivo = e.target.files[0];
+  if(!archivo) return;
+  if(!window['pdfjsLib']){
+    alert('No se pudo cargar el lector de PDF (revisa tu conexión a internet e intenta de nuevo).');
+    e.target.value = '';
+    return;
+  }
+  try{
+    const buffer = await archivo.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
+    let lineas = [];
+    for(let i=1; i<=pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const contenido = await page.getTextContent();
+      lineas = lineas.concat(agruparLineasPorPosicion(contenido.items));
+    }
+    const textoCompleto = lineas.join('\n');
+
+    // --- extraer datos de cabecera ---
+    const mNumCot = textoCompleto.match(/[A-Z]{2,6}\d{3,7}/);
+    const mFecha = textoCompleto.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
+    const mCorreo = textoCompleto.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const mNit = textoCompleto.match(/\bNIT\b\s*([\d.-]{5,})/i);
+
+    let fechaPdfISO = null;
+    if(mFecha){
+      const [d,m,a] = mFecha[0].split('/');
+      fechaPdfISO = new Date(`${a}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`).toISOString();
+    }
+
+    // cliente: texto entre "Cliente" y "NIT" en las líneas reconstruidas
+    let clienteDetectado = '';
+    const idxCliente = lineas.findIndex(l => /^cliente\b/i.test(l.trim()));
+    if(idxCliente >= 0){
+      clienteDetectado = lineas[idxCliente].replace(/^cliente/i,'').trim();
+      if(!clienteDetectado && lineas[idxCliente+1]) clienteDetectado = lineas[idxCliente+1].trim();
+    }
+
+    // --- extraer líneas de producto ---
+    const productosPdf = [];
+    lineas.forEach(l=>{
+      const p = parsearLineaProducto(l);
+      if(p) productosPdf.push(p);
+    });
+
+    if(!productosPdf.length){
+      alert('No pude reconocer productos en este PDF. Puede que el diseño sea distinto al de este cotizador. Revisa el archivo o cárgalo manualmente.');
+      e.target.value = '';
+      return;
+    }
+
+    // llenar cabecera del formulario (editable si algo no quedó bien)
+    if(mNumCot) document.getElementById('numCot').innerText = mNumCot[0];
+    if(mFecha) document.getElementById('fecha').innerText = mFecha[0];
+    if(clienteDetectado) document.getElementById('cliente').value = clienteDetectado.toUpperCase();
+    if(mNit) document.getElementById('nit').value = mNit[1];
+    if(mCorreo) document.getElementById('correo').value = mCorreo[0];
+
+    // los productos entran como candidatos a verificar (igual que los de correo/catálogo)
+    const catalogo = obtenerCatalogoProductos();
+    candidatosActuales = productosPdf.map(p=>{
+      const match = catalogo.find(c => normalizarTexto(c.nombre) === normalizarTexto(p.producto));
+      return {
+        textoOriginal: `${p.producto} · ${p.cantidad} × $${fmtNum(p.precio)}`,
+        nombre: p.producto,
+        precio: p.precio,
+        cantidad: p.cantidad,
+        fecha: fechaPdfISO,
+        origen: 'pdf',
+        sinMatch: !match
+      };
+    });
+    document.getElementById('listaCandidatos').innerHTML = '';
+    document.getElementById('listaCorreosGmail').innerHTML = '';
+    document.getElementById('textoCorreoPegado').value = '';
+    document.getElementById('modalCorreo').classList.add('abierto');
+    renderCandidatos();
+    alert('Se encontraron ' + productosPdf.length + ' producto(s) en el PDF. Revísalos y dale "Aprobar" a cada uno para agregarlos a la cotización.');
+  }catch(err){
+    alert('No se pudo leer el PDF. Asegúrate de que sea un PDF con texto (no una imagen escaneada).');
+  }
+  e.target.value = '';
+});
+
+function fmtNum(n){ return new Intl.NumberFormat('es-CO').format(n||0); }
 </script>
 
 </body>
