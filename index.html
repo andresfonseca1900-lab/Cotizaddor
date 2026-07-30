@@ -273,7 +273,21 @@
   }
   tbody tr:nth-child(even){background:#f3f5f8;}
   tbody tr:hover{background:#fdf0c8;}
-  tbody td.producto{text-align:left; font-weight:600; color:var(--ink);}
+  tbody td.col-producto{text-align:left; font-weight:600; color:var(--ink); position:relative;}
+  .sugerencias-box{
+    position:absolute; top:100%; left:0; right:0; z-index:50;
+    background:#fff; border:1px solid var(--paper-line); border-radius:4px;
+    box-shadow:0 4px 14px rgba(0,0,0,.18);
+    margin-top:2px; overflow:hidden;
+  }
+  .sugerencias-box .item{
+    padding:7px 10px; cursor:pointer; display:flex; justify-content:space-between; gap:8px;
+    font-family:'Inter',sans-serif; font-weight:400; border-bottom:1px solid var(--paper-line);
+  }
+  .sugerencias-box .item:last-child{border-bottom:none;}
+  .sugerencias-box .item:hover{background:#f2f3f6;}
+  .sugerencias-box .item .nom{font-size:12.5px; color:var(--ink); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .sugerencias-box .item .pre{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--navy); flex-shrink:0;}
   tbody td.num{text-align:right; font-family:'JetBrains Mono',monospace;}
   tbody td.centro{text-align:center; font-family:'JetBrains Mono',monospace;}
   tbody td.total-fila{font-weight:700; color:var(--navy);}
@@ -727,7 +741,10 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const tbody = document.getElementById('cuerpoTabla');
   const tr = document.createElement('tr');
   tr.innerHTML = `
-    <td class="producto"><input class="celda producto" list="dlProductos" value="${producto}" autocomplete="off"></td>
+    <td class="col-producto">
+      <input class="celda producto" value="${String(producto).replace(/"/g,'&quot;')}" autocomplete="off">
+      <div class="sugerencias-box" style="display:none;"></div>
+    </td>
     <td class="num"><input class="celda precio" value="${precio}" autocomplete="off"></td>
     <td class="centro"><input class="celda cantidad" value="${cantidad}" autocomplete="off"></td>
     <td class="num total-fila">${formatoCOP(precio*cantidad)}</td>
@@ -737,6 +754,7 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const inputProducto = tr.querySelector('.producto');
   const inputPrecio = tr.querySelector('.precio');
   const inputCantidad = tr.querySelector('.cantidad');
+  const cajaSugerencias = tr.querySelector('.sugerencias-box');
   inputPrecio.addEventListener('input', recalcular);
   inputCantidad.addEventListener('input', recalcular);
   forzarMayusculas(inputProducto);
@@ -746,9 +764,40 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
     const match = obtenerCatalogoProductos().find(p => normalizarTexto(p.nombre) === buscado);
     if(match){ inputPrecio.value = match.precio; recalcular(); }
   };
-  inputProducto.addEventListener('input', intentarAutocompletarPrecio);
+
+  function ocultarSugerencias(){ cajaSugerencias.style.display = 'none'; cajaSugerencias.innerHTML = ''; }
+
+  function mostrarSugerencias(){
+    const texto = inputProducto.value.trim();
+    if(texto.length < 2){ ocultarSugerencias(); return; }
+    const mejores = obtenerCatalogoProductos()
+      .map(p => ({p, score: puntajeCoincidencia(texto, p)}))
+      .filter(x => x.score > 0)
+      .sort((a,b) => b.score - a.score)
+      .slice(0, 3);
+    if(!mejores.length){ ocultarSugerencias(); return; }
+    cajaSugerencias.innerHTML = mejores.map(({p}) => `
+      <div class="item">
+        <span class="nom">${p.nombre.replace(/</g,'&lt;')}</span>
+        <span class="pre">${formatoCOP(p.precio)}</span>
+      </div>
+    `).join('');
+    [...cajaSugerencias.querySelectorAll('.item')].forEach((el, i) => {
+      el.addEventListener('mousedown', (e)=>{
+        e.preventDefault(); // evita que el input pierda foco antes del click
+        inputProducto.value = mejores[i].p.nombre;
+        inputPrecio.value = mejores[i].p.precio;
+        recalcular();
+        ocultarSugerencias();
+      });
+    });
+    cajaSugerencias.style.display = 'block';
+  }
+
+  inputProducto.addEventListener('input', ()=>{ intentarAutocompletarPrecio(); mostrarSugerencias(); });
+  inputProducto.addEventListener('focus', mostrarSugerencias);
   inputProducto.addEventListener('change', intentarAutocompletarPrecio);
-  inputProducto.addEventListener('blur', intentarAutocompletarPrecio);
+  inputProducto.addEventListener('blur', ()=>{ intentarAutocompletarPrecio(); setTimeout(ocultarSugerencias, 120); });
   recalcular();
 }
 
@@ -843,7 +892,7 @@ function recopilarDatosActuales(){
   };
 }
 
-function guardarCotizacionActual(){
+async function guardarCotizacionActual(){
   const datos = recopilarDatosActuales();
   if(!datos.numCot){ alert('Ponle un número de cotización antes de guardar.'); return; }
   const lista = obtenerGuardadas();
@@ -852,7 +901,17 @@ function guardarCotizacionActual(){
   if(guardarLista(lista)){
     actualizarCatalogosDesde(datos);
     actualizarContador();
-    alert('Cotización ' + datos.numCot + ' guardada. Cliente y productos quedaron disponibles para autocompletar.');
+    const url = obtenerBackendUrl();
+    if(url){
+      try{
+        await fetch(url, { method:'POST', body: JSON.stringify({ action:'guardarCotizacion', payload: datos }) });
+        alert('Cotización ' + datos.numCot + ' guardada en este navegador y sincronizada con tu Google Sheet.');
+      }catch(e){
+        alert('Cotización ' + datos.numCot + ' guardada en este navegador, pero no se pudo sincronizar con tu Google Sheet (revisa tu conexión). Vuelve a darle "Guardar" cuando tengas internet.');
+      }
+    }else{
+      alert('Cotización ' + datos.numCot + ' guardada solo en este navegador — conecta el backend ("⚙ Backend") para que quede también en tu Google Sheet y no se pierda si cambias de dispositivo o de app.');
+    }
   }
 }
 
@@ -911,11 +970,16 @@ function cargarCotizacion(numCot){
   cerrarModal();
 }
 
-function eliminarCotizacion(numCot){
+async function eliminarCotizacion(numCot){
   if(!confirm('¿Eliminar la cotización ' + numCot + ' guardada? Esta acción no se puede deshacer.')) return;
   let lista = obtenerGuardadas();
   lista = lista.filter(c => c.numCot !== numCot);
   guardarLista(lista);
+  const url = obtenerBackendUrl();
+  if(url){
+    try{ await fetch(url, { method:'POST', body: JSON.stringify({ action:'eliminarCotizacion', payload:{numCot} }) }); }
+    catch(e){ /* queda eliminada localmente al menos */ }
+  }
   renderListaGuardadas();
   actualizarContador();
 }
@@ -946,9 +1010,31 @@ function renderListaGuardadas(){
   `).join('');
 }
 
+async function sincronizarGuardadasDesdeBackend(){
+  const url = obtenerBackendUrl();
+  if(!url) return;
+  try{
+    const res = await fetch(url + '?action=listarCotizaciones');
+    const json = await res.json();
+    if(!json.ok || !Array.isArray(json.data)) return;
+    const local = obtenerGuardadas();
+    const combinado = {};
+    local.forEach(c => { if(c.numCot) combinado[c.numCot] = c; });
+    json.data.forEach(c => { if(c.numCot) combinado[c.numCot] = c; }); // el backend manda (fuente confiable)
+    guardarLista(Object.values(combinado));
+  }catch(e){ /* si falla, se sigue mostrando lo que haya en el navegador */ }
+}
+
 function abrirModal(){
   renderListaGuardadas();
   document.getElementById('modalGuardadas').classList.add('abierto');
+  const url = obtenerBackendUrl();
+  if(url){
+    document.getElementById('listaGuardadas').insertAdjacentHTML('afterbegin', '<div class="modal-vacio" id="avisoSincronizando">🔄 Sincronizando con tu Google Sheet…</div>');
+    sincronizarGuardadasDesdeBackend().then(()=>{
+      renderListaGuardadas();
+    });
+  }
 }
 function cerrarModal(){
   document.getElementById('modalGuardadas').classList.remove('abierto');
