@@ -549,6 +549,9 @@
       font-weight:600; color:var(--ink);
     }
     .sugerencias-box{display:none !important;}
+    thead{display: table-header-group;}
+    tbody tr{page-break-inside: avoid; break-inside: avoid;}
+    .pago-box, .totales-plate{page-break-inside: avoid; break-inside: avoid;}
     .header, .footer{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .header .corner-art, .footer .corner-art{ mix-blend-mode:normal; opacity:.55; }
     .totales-plate{ box-shadow:none; }
@@ -839,6 +842,32 @@ function recalcular(){
 document.getElementById('btnAgregar').addEventListener('click', ()=>crearFila());
 document.getElementById('btnAgregar2').addEventListener('click', ()=>crearFila());
 document.getElementById('btnImprimir').addEventListener('click', ()=>window.print());
+
+function ajustarImpresionUnaPagina(){
+  const hoja = document.getElementById('hoja');
+  hoja.style.transform = '';
+  hoja.style.height = '';
+  const alturaNatural = hoja.scrollHeight;
+  const pxPorMm = 96 / 25.4;
+  const alturaDisponible = (297 - 18) * pxPorMm; // A4 menos 9mm de margen arriba y abajo
+  const ESCALA_MINIMA_LEGIBLE = 0.72; // por debajo de esto el texto queda muy pequeño para leer
+  if(alturaNatural > alturaDisponible){
+    let escala = alturaDisponible / alturaNatural;
+    if(escala < ESCALA_MINIMA_LEGIBLE){
+      // no vale la pena encoger más allá de lo legible: mejor que pase a una 2ª página, limpia
+      escala = ESCALA_MINIMA_LEGIBLE;
+    }
+    hoja.style.transformOrigin = 'top left';
+    hoja.style.transform = `scale(${escala})`;
+    hoja.style.height = (alturaNatural * escala) + 'px';
+  }
+}
+window.addEventListener('beforeprint', ajustarImpresionUnaPagina);
+window.addEventListener('afterprint', ()=>{
+  const hoja = document.getElementById('hoja');
+  hoja.style.transform = '';
+  hoja.style.height = '';
+});
 
 document.getElementById('btnNueva').addEventListener('click', ()=>{
   if(!confirm('¿Crear una nueva cotización en blanco? Se perderán los datos actuales no guardados.')) return;
@@ -1467,7 +1496,7 @@ function renderCandidatos(){
 if(window['pdfjsLib']){ pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js'; }
 
 function agruparLineasPorPosicion(items){
-  // agrupa los fragmentos de texto del PDF por su posición vertical (misma fila)
+  // agrupa los fragmentos de texto del PDF por su posición vertical (misma línea visual)
   const filas = [];
   items.forEach(it=>{
     const y = Math.round(it.transform[5]);
@@ -1476,31 +1505,81 @@ function agruparLineasPorPosicion(items){
     fila.partes.push({x: it.transform[4], texto: it.str});
   });
   filas.sort((a,b)=> b.y - a.y); // de arriba hacia abajo
-  return filas.map(f => f.partes.sort((a,b)=>a.x-b.x).map(p=>p.texto).join(' ').replace(/\s+/g,' ').trim())
-    .filter(l => l.length > 0);
+  return filas.map(f => ({
+    y: f.y,
+    texto: f.partes.sort((a,b)=>a.x-b.x).map(p=>p.texto).join(' ').replace(/\s+/g,' ').trim()
+  })).filter(l => l.texto.length > 0);
 }
 
-function parsearLineaProducto(linea){
-  const tokens = linea.trim().split(/\s+/);
-  if(tokens.length < 4) return null;
-  const esNumero = t => /^[\d.,]+$/.test(t) && parseNumero(t) > 0;
-  const ultimos3 = tokens.slice(-3);
-  if(ultimos3.every(esNumero)){
-    const producto = tokens.slice(0, -3).join(' ').toUpperCase();
-    const precio = parseNumero(ultimos3[0]);
-    const cantidad = parseNumero(ultimos3[1]);
-    if(producto.length > 1 && precio > 0 && cantidad > 0){
-      return {producto, precio, cantidad};
+// extrae las filas de la tabla de productos usando la posición real (x,y) de cada texto,
+// no el orden del texto plano — así soporta descripciones que ocupan varias líneas
+function extraerFilasProductosPorColumna(items){
+  const norm = s => s.trim().toUpperCase();
+  const buscarEncabezado = (palabra) => items.find(it => norm(it.str) === palabra);
+  const hProducto = buscarEncabezado('PRODUCTO');
+  const hPrecio = buscarEncabezado('PRECIO');
+  const hCantidad = buscarEncabezado('CANTIDAD');
+  const hTotal = buscarEncabezado('TOTAL');
+  if(!hProducto || !hPrecio) return []; // no se pudo ubicar la tabla en esta página
+
+  const yEncabezado = hProducto.transform[5];
+  const xPrecio = hPrecio.transform[4];
+  const xCantidad = hCantidad ? hCantidad.transform[4] : xPrecio + 60;
+  const xTotalCol = hTotal ? hTotal.transform[4] : xCantidad + 60;
+
+  const hSubtotal = items.find(it => /SUBTOTAL|IVA|FORMA DE PAGO/.test(norm(it.str)));
+  const yLimiteInferior = hSubtotal ? hSubtotal.transform[5] : -Infinity;
+
+  const cuerpo = items
+    .filter(it => it.transform[5] < yEncabezado - 2 && it.transform[5] > yLimiteInferior + 2)
+    .map(it => ({ x: it.transform[4], y: it.transform[5], texto: it.str }));
+
+  // los límites de cada columna son la posición real de su encabezado (no el punto medio):
+  // así, aunque "Producto" sea una columna ancha, todo su texto queda bien clasificado
+  const colProducto = cuerpo.filter(it => it.x < xPrecio);
+  const colPrecio = cuerpo.filter(it => it.x >= xPrecio && it.x < xCantidad);
+  const colCantidad = cuerpo.filter(it => it.x >= xCantidad && it.x < xTotalCol);
+
+  // cada línea de la columna PRECIO (una sola línea, numérica) marca el "centro" de una fila de la tabla
+  const preciosPorFila = [];
+  colPrecio.forEach(it=>{
+    const val = parseNumero(it.texto);
+    if(val > 0){
+      let f = preciosPorFila.find(p => Math.abs(p.y - it.y) < 3);
+      if(!f){ f = {y: it.y, precio: val}; preciosPorFila.push(f); }
     }
-  }
-  return null;
+  });
+  preciosPorFila.sort((a,b)=> b.y - a.y); // de arriba hacia abajo
+
+  if(!preciosPorFila.length) return [];
+
+  const filas = preciosPorFila.map((p, i) => {
+    const yTope = i === 0 ? yEncabezado : (preciosPorFila[i-1].y + p.y) / 2;
+    const yPiso = i === preciosPorFila.length - 1 ? yLimiteInferior : (p.y + preciosPorFila[i+1].y) / 2;
+    const textoProducto = colProducto
+      .filter(it => it.y <= yTope && it.y > yPiso)
+      .sort((a,b)=> b.y - a.y || a.x - b.x)
+      .map(it => it.texto)
+      .join(' ')
+      .replace(/\s+/g,' ')
+      .trim()
+      .toUpperCase();
+
+    // la cantidad está en la misma línea (y) que el precio, dentro de la columna de cantidad
+    const itemCantidad = colCantidad.find(it => Math.abs(it.y - p.y) < 3 && parseNumero(it.texto) > 0);
+    const cantidad = itemCantidad ? parseNumero(itemCantidad.texto) : 1;
+
+    return { producto: textoProducto, precio: p.precio, cantidad };
+  }).filter(f => f.producto.length > 1 && f.precio > 0);
+
+  return filas;
 }
 
 document.getElementById('inputPdfCotizacion').addEventListener('change', async (e)=>{
   const archivo = e.target.files[0];
   if(!archivo) return;
   if(!window['pdfjsLib']){
-    alert('No se pudo cargar el lector de PDF (revisa tu conexión a internet e intenta de nuevo).');
+    alert('No se pudo cargar el lector de PDF. Sube pdf.min.js y pdf.worker.min.js a la misma carpeta de tu repositorio de GitHub.');
     e.target.value = '';
     return;
   }
@@ -1508,10 +1587,12 @@ document.getElementById('inputPdfCotizacion').addEventListener('change', async (
     const buffer = await archivo.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
     let lineas = [];
+    let productosPdf = [];
     for(let i=1; i<=pdf.numPages; i++){
       const page = await pdf.getPage(i);
       const contenido = await page.getTextContent();
-      lineas = lineas.concat(agruparLineasPorPosicion(contenido.items));
+      lineas = lineas.concat(agruparLineasPorPosicion(contenido.items).map(l=>l.texto));
+      productosPdf = productosPdf.concat(extraerFilasProductosPorColumna(contenido.items));
     }
     const textoCompleto = lineas.join('\n');
 
@@ -1519,7 +1600,7 @@ document.getElementById('inputPdfCotizacion').addEventListener('change', async (
     const mNumCot = textoCompleto.match(/[A-Z]{2,6}\d{3,7}/);
     const mFecha = textoCompleto.match(/\d{1,2}\/\d{1,2}\/\d{4}/);
     const mCorreo = textoCompleto.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    const mNit = textoCompleto.match(/\bNIT\b\s*([\d.-]{5,})/i);
+    const mNit = textoCompleto.match(/\bNIT\b[:\s]*([\d.-]{5,})/i);
 
     let fechaPdfISO = null;
     if(mFecha){
@@ -1527,23 +1608,15 @@ document.getElementById('inputPdfCotizacion').addEventListener('change', async (
       fechaPdfISO = new Date(`${a}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`).toISOString();
     }
 
-    // cliente: texto entre "Cliente" y "NIT" en las líneas reconstruidas
+    // cliente: texto que sigue a la etiqueta "Cliente:" en la misma línea reconstruida
     let clienteDetectado = '';
-    const idxCliente = lineas.findIndex(l => /^cliente\b/i.test(l.trim()));
-    if(idxCliente >= 0){
-      clienteDetectado = lineas[idxCliente].replace(/^cliente/i,'').trim();
-      if(!clienteDetectado && lineas[idxCliente+1]) clienteDetectado = lineas[idxCliente+1].trim();
+    const lineaCliente = lineas.find(l => /^cliente\s*:?/i.test(l.trim()));
+    if(lineaCliente){
+      clienteDetectado = lineaCliente.replace(/^cliente\s*:?/i,'').trim();
     }
 
-    // --- extraer líneas de producto ---
-    const productosPdf = [];
-    lineas.forEach(l=>{
-      const p = parsearLineaProducto(l);
-      if(p) productosPdf.push(p);
-    });
-
     if(!productosPdf.length){
-      alert('No pude reconocer productos en este PDF. Puede que el diseño sea distinto al de este cotizador. Revisa el archivo o cárgalo manualmente.');
+      alert('No pude reconocer productos en este PDF. Puede que el diseño sea distinto al de este cotizador, o que sea una imagen escaneada (sin texto seleccionable). Revisa el archivo o cárgalo manualmente.');
       e.target.value = '';
       return;
     }
