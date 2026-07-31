@@ -845,8 +845,7 @@ document.getElementById('btnImprimir').addEventListener('click', ()=>window.prin
 
 function ajustarImpresionUnaPagina(){
   const hoja = document.getElementById('hoja');
-  hoja.style.transform = '';
-  hoja.style.height = '';
+  hoja.style.zoom = '';
   const alturaNatural = hoja.scrollHeight;
   const pxPorMm = 96 / 25.4;
   const alturaDisponible = (297 - 18) * pxPorMm; // A4 menos 9mm de margen arriba y abajo
@@ -857,16 +856,13 @@ function ajustarImpresionUnaPagina(){
       // no vale la pena encoger más allá de lo legible: mejor que pase a una 2ª página, limpia
       escala = ESCALA_MINIMA_LEGIBLE;
     }
-    hoja.style.transformOrigin = 'top left';
-    hoja.style.transform = `scale(${escala})`;
-    hoja.style.height = (alturaNatural * escala) + 'px';
+    hoja.style.zoom = escala;
   }
 }
 window.addEventListener('beforeprint', ajustarImpresionUnaPagina);
 window.addEventListener('afterprint', ()=>{
   const hoja = document.getElementById('hoja');
-  hoja.style.transform = '';
-  hoja.style.height = '';
+  hoja.style.zoom = '';
 });
 
 document.getElementById('btnNueva').addEventListener('click', ()=>{
