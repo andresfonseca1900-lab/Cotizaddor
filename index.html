@@ -757,7 +757,7 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
       <span class="producto-print" style="display:none;">${String(producto).replace(/</g,'&lt;')}</span>
       <div class="sugerencias-box" style="display:none;"></div>
     </td>
-    <td class="num"><input class="celda precio" value="${precio}" autocomplete="off"></td>
+    <td class="num"><input class="celda precio" value="${precio ? formatoCOP(precio) : ''}" autocomplete="off"></td>
     <td class="centro"><input class="celda cantidad" value="${cantidad}" autocomplete="off"></td>
     <td class="num total-fila">${formatoCOP(precio*cantidad)}</td>
     <td class="centro"><button class="del-btn" onclick="eliminarFila(this)">✕</button></td>
@@ -769,13 +769,23 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const inputCantidad = tr.querySelector('.cantidad');
   const cajaSugerencias = tr.querySelector('.sugerencias-box');
   inputPrecio.addEventListener('input', recalcular);
+  inputPrecio.addEventListener('focus', ()=>{
+    const val = parseNumero(inputPrecio.value);
+    inputPrecio.value = val ? String(val) : '';
+    inputPrecio.select();
+  });
+  inputPrecio.addEventListener('blur', ()=>{
+    const val = parseNumero(inputPrecio.value);
+    inputPrecio.value = val ? formatoCOP(val) : '';
+    recalcular();
+  });
   inputCantidad.addEventListener('input', recalcular);
   forzarMayusculas(inputProducto);
   inputProducto.addEventListener('focus', ()=> inputProducto.select());
   const intentarAutocompletarPrecio = ()=>{
     const buscado = normalizarTexto(inputProducto.value);
     const match = obtenerCatalogoProductos().find(p => normalizarTexto(p.nombre) === buscado);
-    if(match){ inputPrecio.value = match.precio; recalcular(); }
+    if(match){ inputPrecio.value = formatoCOP(match.precio); recalcular(); }
   };
 
   function ocultarSugerencias(){ cajaSugerencias.style.display = 'none'; cajaSugerencias.innerHTML = ''; }
@@ -801,7 +811,7 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
         inputProducto.value = mejores[i].p.nombre;
         spanImprimir.textContent = mejores[i].p.nombre;
         inputProducto.title = mejores[i].p.nombre;
-        inputPrecio.value = mejores[i].p.precio;
+        inputPrecio.value = formatoCOP(mejores[i].p.precio);
         recalcular();
         ocultarSugerencias();
       });
@@ -1403,35 +1413,90 @@ function badgeOrigen(c){
 
 let candidatosActuales = [];
 
+const UNIDADES_CONOCIDAS = ['und','un','unid','unidad','unidades','m','ml','kg','kgs','gl','gal','lt','lts','cja','caja','par','jgo','jgos','rollo','rll','gr','grs','mt','mts'];
+
+function limpiarTextoCorreo(texto){
+  let t = texto;
+  // saludo/introducción típica
+  t = t.replace(/buen\s*d[ií]a[\s\S]{0,150}?(cotizaci[oó]n de estos elementos:?)/i, '');
+  // cierre/aviso típico (y todo lo que venga después)
+  t = t.replace(/favor confirmar fecha de entrega[\s\S]*$/i, '');
+  t = t.replace(/quedo atento a su pronta respuesta\.?[\s\S]*$/i, '');
+  return t;
+}
+
+// convierte el texto pegado (o traído de Gmail) en una lista de {nombre, cantidad},
+// soportando tanto tablas pegadas con tabulaciones como el formato "apilado"
+// (nombre, cantidad y unidad cada uno en su propia línea, repetido por producto)
+function extraerItemsDeTexto(textoCrudo){
+  const limpio = limpiarTextoCorreo(textoCrudo);
+  let lineas = limpio.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+
+  // quitar la fila/línea(s) de encabezado tipo DESCRIPCION / CANT / UM
+  lineas = lineas.filter(l => !/^descripci[oó]n(\s+cant)?(\s+um)?$/i.test(l) && !/^cant\.?$/i.test(l) && !/^u\.?m\.?$/i.test(l));
+
+  const items = [];
+  const tieneTabs = lineas.some(l => l.includes('\t'));
+
+  if(tieneTabs){
+    lineas.forEach(l=>{
+      const celdas = l.split('\t').map(c=>c.trim()).filter(Boolean);
+      if(celdas.length < 2) return;
+      const nombre = celdas[0];
+      const cantidad = parseNumero(celdas[1]) || 1;
+      if(nombre) items.push({nombre, cantidad});
+    });
+  } else {
+    // formato apilado: nombre, luego un número (cantidad), luego una unidad (se ignora)
+    let pendiente = null;
+    lineas.forEach(l=>{
+      const esUnidad = UNIDADES_CONOCIDAS.includes(normalizarTexto(l));
+      const esNumero = /^[\d.,]+$/.test(l) && parseNumero(l) > 0;
+      if(esUnidad) return; // se descarta, no aporta info
+      if(esNumero && pendiente){
+        pendiente.cantidad = parseNumero(l);
+        items.push(pendiente);
+        pendiente = null;
+      } else if(!esNumero){
+        if(pendiente) items.push(pendiente); // llegó un nombre nuevo sin haber visto cantidad: se guarda con 1 por defecto
+        pendiente = {nombre: l, cantidad: 1};
+      }
+    });
+    if(pendiente) items.push(pendiente);
+  }
+
+  return items;
+}
+
 document.getElementById('btnAnalizarTexto').addEventListener('click', ()=>{
   const texto = document.getElementById('textoCorreoPegado').value;
-  const lineas = texto.split('\n').map(l=>l.trim()).filter(l=>l.length > 2);
-  if(!lineas.length){ alert('Pega o trae primero el texto del correo.'); return; }
+  const items = extraerItemsDeTexto(texto);
+  if(!items.length){ alert('No pude reconocer productos en este texto. Revisa el formato o agrégalos manualmente.'); return; }
   const catalogo = obtenerCatalogoProductos();
-  candidatosActuales = lineas.map(linea => {
+  candidatosActuales = items.map(item => {
     let mejor = null, mejorScore = 0;
     catalogo.forEach(p => {
-      const s = puntajeCoincidencia(linea, p);
+      const s = puntajeCoincidencia(item.nombre, p);
       if(s > mejorScore){ mejorScore = s; mejor = p; }
     });
-    const precioEnLinea = extraerPrecioDeLinea(linea);
+    const precioEnLinea = extraerPrecioDeLinea(item.nombre);
 
     if(precioEnLinea && fechaCorreoSeleccionado){
       // el propio correo trae un precio explícito: se prioriza ese origen
       return {
-        textoOriginal: linea,
-        nombre: mejor ? mejor.nombre : linea.replace(/[$0-9.,]/g,'').trim() || linea,
+        textoOriginal: item.nombre,
+        nombre: mejor ? mejor.nombre : item.nombre.toUpperCase(),
         precio: precioEnLinea,
         fecha: fechaCorreoSeleccionado,
-        cantidad: 1,
+        cantidad: item.cantidad,
         origen: 'correo',
         sinMatch: !mejor
       };
     }
     if(mejor && mejorScore >= 0.5){
-      return { textoOriginal: linea, nombre: mejor.nombre, precio: mejor.precio, fecha: mejor.fecha, cantidad: 1, origen: 'catalogo', sinMatch: false };
+      return { textoOriginal: item.nombre, nombre: mejor.nombre, precio: mejor.precio, fecha: mejor.fecha, cantidad: item.cantidad, origen: 'catalogo', sinMatch: false };
     }
-    return { textoOriginal: linea, nombre: linea, precio: precioEnLinea || 0, fecha: null, cantidad: 1, origen: null, sinMatch: true };
+    return { textoOriginal: item.nombre, nombre: item.nombre.toUpperCase(), precio: 0, fecha: null, cantidad: item.cantidad, origen: null, sinMatch: true };
   });
   renderCandidatos();
 });
@@ -1448,7 +1513,7 @@ function renderCandidatos(){
       <div class="cand-nombre">${c.sinMatch ? '⚠ Sin coincidencia en catálogo — revisa nombre y precio' : '→ ' + c.nombre}</div>
       <div class="cand-fila">
         ${c.sinMatch ? `<label>Nombre</label><input class="cand-nombre-input" style="width:200px; text-transform:uppercase;" value="${c.nombre.toUpperCase().replace(/"/g,'&quot;')}">` : ''}
-        <label>Precio</label><input class="cand-precio-input" value="${c.precio}">
+        <label>Precio</label><input class="cand-precio-input" value="${c.precio ? formatoCOP(c.precio) : ''}">
         <label>Cant.</label><input class="cand-cant-input" style="width:56px;" value="${c.cantidad}">
         ${badgeOrigen(c)}
         <div class="cand-acciones">
