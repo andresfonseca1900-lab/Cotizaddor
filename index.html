@@ -271,9 +271,21 @@
     padding:9px 12px;
     font-size:13.5px;
   }
-  tbody tr:nth-child(even){background:#f3f5f8;}
-  tbody tr:hover{background:#fdf0c8;}
-  tbody td.col-producto{text-align:left; font-weight:600; color:var(--ink); position:relative;}
+  tbody tr.fila-nombre td{border-bottom:none; padding-bottom:4px;}
+  tbody tr.fila-numeros td{padding-top:4px; border-bottom:2px solid var(--paper-line);}
+  tbody tr.hover-grupo{background:#fdf0c8;}
+  .fila-nombre-inner{display:flex; align-items:center; gap:8px;}
+  .flechas{display:flex; flex-direction:row; gap:5px; flex-shrink:0;}
+  .btn-flecha{
+    width:30px; height:30px; border:1px solid var(--paper-line); background:#fff;
+    border-radius:4px; cursor:pointer; font-size:14px; line-height:1; color:var(--navy);
+    display:flex; align-items:center; justify-content:center; padding:0;
+  }
+  .btn-flecha:hover{background:var(--navy); color:#fff;}
+  .btn-flecha:disabled{opacity:.25; cursor:default;}
+  .btn-flecha:disabled:hover{background:#fff; color:var(--navy);}
+  .col-producto-wrap{flex:1; min-width:0; position:relative; text-align:left; font-weight:600; color:var(--ink);}
+  .fila-nombre .del-btn{flex-shrink:0;}
   .sugerencias-box{
     position:absolute; top:100%; left:0; z-index:50;
     width:max(100%, 300px); max-width:420px;
@@ -540,17 +552,18 @@
     html,body{background:#fff;padding:0;margin:0;}
     .toolbar{display:none;}
     #hoja{box-shadow:none;max-width:100%;}
-    .del-btn, .add-row-wrap{display:none;}
+    .del-btn, .add-row-wrap, .flechas{display:none;}
     [contenteditable]{cursor:default;}
-    .col-producto input.producto{display:none;}
-    .col-producto .producto-print{
+    .col-producto-wrap input.producto{display:none;}
+    .col-producto-wrap .producto-print{
       display:block !important;
       white-space:normal; word-break:break-word;
       font-weight:600; color:var(--ink);
     }
     .sugerencias-box{display:none !important;}
     thead{display: table-header-group;}
-    tbody tr{page-break-inside: avoid; break-inside: avoid;}
+    tr.fila-nombre{page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid;}
+    tr.fila-numeros{page-break-inside: avoid; break-inside: avoid;}
     .pago-box, .totales-plate{page-break-inside: avoid; break-inside: avoid;}
     .header, .footer{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .header .corner-art, .footer .corner-art{ mix-blend-mode:normal; opacity:.55; }
@@ -750,24 +763,54 @@ function forzarMayusculas(el){
 
 function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   const tbody = document.getElementById('cuerpoTabla');
-  const tr = document.createElement('tr');
-  tr.innerHTML = `
-    <td class="col-producto">
-      <input class="celda producto" value="${String(producto).replace(/"/g,'&quot;')}" autocomplete="off">
-      <span class="producto-print" style="display:none;">${String(producto).replace(/</g,'&lt;')}</span>
-      <div class="sugerencias-box" style="display:none;"></div>
+
+  const filaNombre = document.createElement('tr');
+  filaNombre.className = 'fila-nombre';
+  filaNombre.innerHTML = `
+    <td colspan="5">
+      <div class="fila-nombre-inner">
+        <div class="flechas">
+          <button type="button" class="btn-flecha" data-dir="up" title="Subir">▲</button>
+          <button type="button" class="btn-flecha" data-dir="down" title="Bajar">▼</button>
+        </div>
+        <div class="col-producto-wrap">
+          <input class="celda producto" value="${String(producto).replace(/"/g,'&quot;')}" autocomplete="off">
+          <span class="producto-print" style="display:none;">${String(producto).replace(/</g,'&lt;')}</span>
+          <div class="sugerencias-box" style="display:none;"></div>
+        </div>
+        <button type="button" class="del-btn" onclick="eliminarFila(this)">✕</button>
+      </div>
     </td>
+  `;
+
+  const filaNumeros = document.createElement('tr');
+  filaNumeros.className = 'fila-numeros';
+  filaNumeros.innerHTML = `
+    <td></td>
     <td class="num"><input class="celda precio" value="${precio ? formatoCOP(precio) : ''}" autocomplete="off"></td>
     <td class="centro"><input class="celda cantidad" value="${cantidad}" autocomplete="off"></td>
     <td class="num total-fila">${formatoCOP(precio*cantidad)}</td>
-    <td class="centro"><button class="del-btn" onclick="eliminarFila(this)">✕</button></td>
+    <td></td>
   `;
-  tbody.appendChild(tr);
-  const inputProducto = tr.querySelector('.producto');
-  const spanImprimir = tr.querySelector('.producto-print');
-  const inputPrecio = tr.querySelector('.precio');
-  const inputCantidad = tr.querySelector('.cantidad');
-  const cajaSugerencias = tr.querySelector('.sugerencias-box');
+
+  tbody.appendChild(filaNombre);
+  tbody.appendChild(filaNumeros);
+
+  // resaltar juntas ambas filas del mismo producto al pasar el cursor
+  [filaNombre, filaNumeros].forEach(tr=>{
+    tr.addEventListener('mouseenter', ()=>{ filaNombre.classList.add('hover-grupo'); filaNumeros.classList.add('hover-grupo'); });
+    tr.addEventListener('mouseleave', ()=>{ filaNombre.classList.remove('hover-grupo'); filaNumeros.classList.remove('hover-grupo'); });
+  });
+
+  filaNombre.querySelectorAll('.btn-flecha').forEach(btn=>{
+    btn.addEventListener('click', ()=> moverFila(filaNombre, btn.dataset.dir));
+  });
+
+  const inputProducto = filaNombre.querySelector('.producto');
+  const spanImprimir = filaNombre.querySelector('.producto-print');
+  const inputPrecio = filaNumeros.querySelector('.precio');
+  const inputCantidad = filaNumeros.querySelector('.cantidad');
+  const cajaSugerencias = filaNombre.querySelector('.sugerencias-box');
   inputPrecio.addEventListener('input', recalcular);
   inputPrecio.addEventListener('focus', ()=>{
     const val = parseNumero(inputPrecio.value);
@@ -828,18 +871,36 @@ function crearFila(producto="NUEVO PRODUCTO", precio=0, cantidad=1){
   recalcular();
 }
 
+function moverFila(filaNombre, direccion){
+  const tbody = filaNombre.parentElement;
+  const grupos = [...tbody.querySelectorAll('tr.fila-nombre')].map(fn => [fn, fn.nextElementSibling]);
+  const idx = grupos.findIndex(g => g[0] === filaNombre);
+  const destino = direccion === 'up' ? idx - 1 : idx + 1;
+  if(destino < 0 || destino >= grupos.length) return;
+  const tmp = grupos[idx];
+  grupos[idx] = grupos[destino];
+  grupos[destino] = tmp;
+  grupos.forEach(([fn, fx]) => { tbody.appendChild(fn); tbody.appendChild(fx); });
+  actualizarFlechas();
+}
+
 function eliminarFila(btn){
-  btn.closest('tr').remove();
+  const filaNombre = btn.closest('tr.fila-nombre');
+  const filaNumeros = filaNombre.nextElementSibling;
+  filaNombre.remove();
+  if(filaNumeros) filaNumeros.remove();
   recalcular();
 }
 
 function recalcular(){
   let subtotal = 0;
-  document.querySelectorAll('#cuerpoTabla tr').forEach(tr=>{
-    const precio = parseNumero(tr.querySelector('.precio').value);
-    const cantidad = parseNumero(tr.querySelector('.cantidad').value);
+  document.querySelectorAll('#cuerpoTabla tr.fila-nombre').forEach(filaNombre=>{
+    const filaNumeros = filaNombre.nextElementSibling;
+    if(!filaNumeros) return;
+    const precio = parseNumero(filaNumeros.querySelector('.precio').value);
+    const cantidad = parseNumero(filaNumeros.querySelector('.cantidad').value);
     const totalFila = precio * cantidad;
-    tr.querySelector('.total-fila').innerText = formatoCOP(totalFila);
+    filaNumeros.querySelector('.total-fila').innerText = formatoCOP(totalFila);
     subtotal += totalFila;
   });
   const iva = subtotal * IVA_RATE;
@@ -847,6 +908,16 @@ function recalcular(){
   document.getElementById('subtotal').innerText = formatoCOP(subtotal);
   document.getElementById('iva').innerText = formatoCOP(iva);
   document.getElementById('total').innerText = formatoCOP(total);
+  actualizarFlechas();
+}
+
+function actualizarFlechas(){
+  const filas = [...document.querySelectorAll('#cuerpoTabla tr.fila-nombre')];
+  filas.forEach((fn, i)=>{
+    const [subir, bajar] = fn.querySelectorAll('.btn-flecha');
+    if(subir) subir.disabled = (i === 0);
+    if(bajar) bajar.disabled = (i === filas.length - 1);
+  });
 }
 
 document.getElementById('btnAgregar').addEventListener('click', ()=>crearFila());
@@ -917,11 +988,13 @@ function guardarLista(lista){
 
 function recopilarDatosActuales(){
   const filas = [];
-  document.querySelectorAll('#cuerpoTabla tr').forEach(tr=>{
+  document.querySelectorAll('#cuerpoTabla tr.fila-nombre').forEach(filaNombre=>{
+    const filaNumeros = filaNombre.nextElementSibling;
+    if(!filaNumeros) return;
     filas.push({
-      producto: tr.querySelector('.producto').value,
-      precio: parseNumero(tr.querySelector('.precio').value),
-      cantidad: parseNumero(tr.querySelector('.cantidad').value)
+      producto: filaNombre.querySelector('.producto').value,
+      precio: parseNumero(filaNumeros.querySelector('.precio').value),
+      cantidad: parseNumero(filaNumeros.querySelector('.cantidad').value)
     });
   });
   return {
