@@ -1272,6 +1272,11 @@ document.getElementById('cliente').addEventListener('change', ()=>{
 });
 
 // cargar lista de precios en bloque (CSV con columnas producto,precio o JSON [{nombre,precio}])
+document.getElementById('inputCatalogo').addEventListener('click', (e)=>{
+  if(!pedirClave('Vas a cargar una lista de precios al catálogo (puede sobrescribir precios existentes).')){
+    e.preventDefault();
+  }
+});
 document.getElementById('inputCatalogo').addEventListener('change', (e)=>{
   const archivo = e.target.files[0];
   if(!archivo) return;
@@ -1344,7 +1349,20 @@ document.getElementById('inputCatalogo').addEventListener('change', (e)=>{
 
 poblarDatalists();
 
+const CLAVE_ACCIONES_SENSIBLES = '1234';
+
+function pedirClave(mensaje){
+  const clave = prompt(mensaje + '\n\nEscribe la contraseña para continuar:');
+  if(clave === null) return false; // canceló
+  if(clave !== CLAVE_ACCIONES_SENSIBLES){
+    alert('Contraseña incorrecta.');
+    return false;
+  }
+  return true;
+}
+
 document.getElementById('btnVaciarCatalogo').addEventListener('click', ()=>{
+  if(!pedirClave('Vas a vaciar todo el catálogo de productos guardado en este navegador.')) return;
   if(!confirm('Esto borra el catálogo de productos guardado en este navegador (nombres y precios para autocompletar). Tu Google Sheet no se toca. ¿Continuar?')) return;
   guardarCatalogoProductos([]);
   poblarDatalists();
@@ -1369,6 +1387,7 @@ async function sincronizarProductoBackend(producto){
 }
 
 document.getElementById('btnConfigBackend').addEventListener('click', ()=>{
+  if(!pedirClave('Vas a cambiar la conexión con tu Google Sheet (backend).')) return;
   const actual = obtenerBackendUrl();
   const nueva = prompt('Pega la URL de tu Apps Script (termina en /exec):', actual);
   if(nueva === null) return;
