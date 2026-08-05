@@ -552,24 +552,18 @@
     html,body{background:#fff;padding:0;margin:0;}
     .toolbar{display:none;}
     #hoja{box-shadow:none;max-width:100%;}
-    .del-btn, .add-row-wrap, .flechas{display:none;}
     [contenteditable]{cursor:default;}
-    .col-producto-wrap input.producto{display:none;}
-    .col-producto-wrap .producto-print{
-      display:block !important;
-      white-space:normal; word-break:break-word;
-      font-weight:600; color:var(--ink);
-    }
-    .sugerencias-box{display:none !important;}
+    #tablaEditable{display:none !important;}
+    .add-row-wrap{display:none !important;}
+    .prod-impresion{text-align:left; font-weight:600; color:var(--ink); white-space:normal; word-break:break-word;}
     thead{display: table-header-group;}
-    tr.fila-nombre{page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid;}
-    tr.fila-numeros{page-break-inside: avoid; break-inside: avoid;}
+    #tablaImpresion tbody tr{page-break-inside: avoid; break-inside: avoid;}
     .pago-box, .totales-plate{page-break-inside: avoid; break-inside: avoid;}
     .header, .footer{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .header .corner-art, .footer .corner-art{ mix-blend-mode:normal; opacity:.55; }
     .totales-plate{ box-shadow:none; }
     .totales-plate .fila.total{ background:var(--navy) !important; color:#fff !important; }
-    tbody tr:nth-child(even){ background:#f3f5f8 !important; }
+    #tablaImpresion tbody tr:nth-child(even){ background:#f3f5f8 !important; }
     thead th{ background:var(--navy) !important; color:#fff !important; }
     .title-block{ background:var(--brass) !important; }
     #hoja{ border:1px solid var(--navy); }
@@ -694,7 +688,7 @@
 
   <div class="tabla-wrap">
     <div class="tabla-titulo">Detalle de productos</div>
-    <table>
+    <table id="tablaEditable">
       <thead>
         <tr>
           <th style="width:50%;">Producto</th>
@@ -705,6 +699,17 @@
         </tr>
       </thead>
       <tbody id="cuerpoTabla"></tbody>
+    </table>
+    <table id="tablaImpresion" style="display:none;">
+      <thead>
+        <tr>
+          <th style="width:50%;">Producto</th>
+          <th style="width:14%;">Precio</th>
+          <th style="width:10%;">Cantidad</th>
+          <th style="width:20%;">Total</th>
+        </tr>
+      </thead>
+      <tbody id="cuerpoImpresion"></tbody>
     </table>
     <datalist id="dlProductos"></datalist>
     <div class="add-row-wrap">
@@ -924,7 +929,35 @@ document.getElementById('btnAgregar').addEventListener('click', ()=>crearFila())
 document.getElementById('btnAgregar2').addEventListener('click', ()=>crearFila());
 document.getElementById('btnImprimir').addEventListener('click', ()=>window.print());
 
+function armarTablaImpresion(){
+  const cuerpo = document.getElementById('cuerpoImpresion');
+  cuerpo.innerHTML = '';
+  document.querySelectorAll('#cuerpoTabla tr.fila-nombre').forEach(filaNombre=>{
+    const filaNumeros = filaNombre.nextElementSibling;
+    if(!filaNumeros) return;
+    const nombre = filaNombre.querySelector('.producto').value;
+    const precio = parseNumero(filaNumeros.querySelector('.precio').value);
+    const cantidad = parseNumero(filaNumeros.querySelector('.cantidad').value);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="prod-impresion">${String(nombre).replace(/</g,'&lt;')}</td>
+      <td class="num">${formatoCOP(precio)}</td>
+      <td class="centro">${cantidad}</td>
+      <td class="num total-fila">${formatoCOP(precio*cantidad)}</td>
+    `;
+    cuerpo.appendChild(tr);
+  });
+  document.getElementById('tablaEditable').style.display = 'none';
+  document.getElementById('tablaImpresion').style.display = 'table';
+}
+
+function restaurarTablaEdicion(){
+  document.getElementById('tablaEditable').style.display = '';
+  document.getElementById('tablaImpresion').style.display = 'none';
+}
+
 function ajustarImpresionUnaPagina(){
+  armarTablaImpresion();
   const hoja = document.getElementById('hoja');
   hoja.style.zoom = '';
   const alturaNatural = hoja.scrollHeight;
@@ -944,6 +977,7 @@ window.addEventListener('beforeprint', ajustarImpresionUnaPagina);
 window.addEventListener('afterprint', ()=>{
   const hoja = document.getElementById('hoja');
   hoja.style.zoom = '';
+  restaurarTablaEdicion();
 });
 
 document.getElementById('btnNueva').addEventListener('click', ()=>{
