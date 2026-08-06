@@ -247,6 +247,37 @@
     height:2px;
     background:linear-gradient(90deg, var(--brass), transparent);
   }
+  .obs-wrap{ padding:0 28px 18px; }
+  .obs-titulo{
+    font-family:'Oswald',sans-serif;
+    font-size:13px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    color:var(--navy);
+    margin-bottom:8px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .obs-titulo::after{
+    content:"";
+    flex:1;
+    height:2px;
+    background:linear-gradient(90deg, var(--brass), transparent);
+  }
+  #observaciones{
+    width:100%; box-sizing:border-box; resize:vertical;
+    border:1px solid var(--paper-line); border-radius:4px; padding:10px 12px;
+    font-family:'Inter',sans-serif; font-size:13px; color:var(--ink);
+    background:#fbfbfa;
+  }
+  #observaciones:focus{ outline:none; background:#fff6cf; }
+  .obs-impresion{
+    white-space:pre-wrap; word-break:break-word;
+    font-family:'Inter',sans-serif; font-size:12.5px; color:var(--ink);
+    border:1px solid var(--paper-line); border-radius:4px; padding:10px 12px;
+    background:#fbfbfa; display:none;
+  }
   table{
     width:100%;
     border-collapse:collapse;
@@ -555,10 +586,12 @@
     [contenteditable]{cursor:default;}
     #tablaEditable{display:none !important;}
     .add-row-wrap{display:none !important;}
+    #observaciones{display:none !important;}
+    .obs-impresion{display:block !important;}
     .prod-impresion{text-align:left; font-weight:600; color:var(--ink); white-space:normal; word-break:break-word;}
     thead{display: table-header-group;}
     #tablaImpresion tbody tr{page-break-inside: avoid; break-inside: avoid;}
-    .pago-box, .totales-plate{page-break-inside: avoid; break-inside: avoid;}
+    .pago-box, .totales-plate, .obs-wrap{page-break-inside: avoid; break-inside: avoid;}
     .header, .footer{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .header .corner-art, .footer .corner-art{ mix-blend-mode:normal; opacity:.55; }
     .totales-plate{ box-shadow:none; }
@@ -719,6 +752,12 @@
       </label>
       <button class="secondary chico" id="btnVaciarCatalogo" style="margin-left:8px;">🗑 Vaciar catálogo de productos</button>
     </div>
+  </div>
+
+  <div class="obs-wrap" id="obsWrap">
+    <div class="obs-titulo">Observaciones</div>
+    <textarea id="observaciones" rows="3" placeholder="Notas, condiciones especiales, aclaraciones para el cliente..."></textarea>
+    <div class="obs-impresion" id="obsImpresion"></div>
   </div>
 
   <div class="footer">
@@ -930,6 +969,15 @@ document.getElementById('btnAgregar2').addEventListener('click', ()=>crearFila()
 document.getElementById('btnImprimir').addEventListener('click', ()=>window.print());
 
 function armarTablaImpresion(){
+  const textoObs = document.getElementById('observaciones').value.trim();
+  const obsWrap = document.getElementById('obsWrap');
+  const obsImpresion = document.getElementById('obsImpresion');
+  if(textoObs){
+    obsImpresion.textContent = textoObs;
+    obsWrap.style.display = '';
+  } else {
+    obsWrap.style.display = 'none';
+  }
   const cuerpo = document.getElementById('cuerpoImpresion');
   cuerpo.innerHTML = '';
   document.querySelectorAll('#cuerpoTabla tr.fila-nombre').forEach(filaNombre=>{
@@ -954,6 +1002,7 @@ function armarTablaImpresion(){
 function restaurarTablaEdicion(){
   document.getElementById('tablaEditable').style.display = '';
   document.getElementById('tablaImpresion').style.display = 'none';
+  document.getElementById('obsWrap').style.display = '';
 }
 
 function ajustarImpresionUnaPagina(){
@@ -987,6 +1036,7 @@ document.getElementById('btnNueva').addEventListener('click', ()=>{
   document.getElementById('nit').value = '000000000';
   document.getElementById('correo').value = 'correo@cliente.com';
   document.getElementById('telefono').value = '';
+  document.getElementById('observaciones').value = '';
   crearFila();
 });
 
@@ -1042,6 +1092,7 @@ function recopilarDatosActuales(){
     credito: document.getElementById('credito').value,
     entrega: document.getElementById('entrega').value,
     oferta: document.getElementById('oferta').value,
+    observaciones: document.getElementById('observaciones').value.trim(),
     filas: filas,
     total: document.getElementById('total').innerText,
     guardadoEn: new Date().toISOString()
@@ -1101,6 +1152,7 @@ function copiarCotizacion(numCot){
   document.getElementById('credito').value = datos.credito || '';
   document.getElementById('entrega').value = datos.entrega || '';
   document.getElementById('oferta').value = datos.oferta || '';
+  document.getElementById('observaciones').value = datos.observaciones || '';
   document.getElementById('cuerpoTabla').innerHTML = '';
   (datos.filas || []).forEach(f => crearFila(f.producto, f.precio, f.cantidad));
   cerrarModal();
@@ -1121,6 +1173,7 @@ function cargarCotizacion(numCot){
   document.getElementById('credito').value = datos.credito || '';
   document.getElementById('entrega').value = datos.entrega || '';
   document.getElementById('oferta').value = datos.oferta || '';
+  document.getElementById('observaciones').value = datos.observaciones || '';
   document.getElementById('cuerpoTabla').innerHTML = '';
   (datos.filas || []).forEach(f => crearFila(f.producto, f.precio, f.cantidad));
   cerrarModal();
