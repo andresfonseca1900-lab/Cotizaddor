@@ -1029,7 +1029,7 @@ window.addEventListener('afterprint', ()=>{
   restaurarTablaEdicion();
 });
 
-document.getElementById('btnNueva').addEventListener('click', ()=>{
+document.getElementById('btnNueva').addEventListener('click', async ()=>{
   if(!confirm('¿Crear una nueva cotización en blanco? Se perderán los datos actuales no guardados.')) return;
   document.getElementById('cuerpoTabla').innerHTML = '';
   document.getElementById('cliente').value = 'NOMBRE DEL CLIENTE';
@@ -1037,6 +1037,7 @@ document.getElementById('btnNueva').addEventListener('click', ()=>{
   document.getElementById('correo').value = 'correo@cliente.com';
   document.getElementById('telefono').value = '';
   document.getElementById('observaciones').value = '';
+  document.getElementById('numCot').innerText = await siguienteNumCotSeguro();
   crearFila();
 });
 
@@ -1136,11 +1137,33 @@ function siguienteNumCot(){
   return mejor.prefijo + String(mejor.num + 1).padStart(mejor.ancho,'0');
 }
 
-function copiarCotizacion(numCot){
+// Igual que siguienteNumCot(), pero si hay backend conectado le pide el número
+// a la Google Sheet (con candado), para que dos dispositivos nunca saquen el mismo número.
+async function siguienteNumCotSeguro(){
+  const url = obtenerBackendUrl();
+  if(url){
+    try{
+      const res = await fetch(url + '?action=siguienteNumero');
+      const json = await res.json();
+      if(json.ok && json.numero){
+        const actual = (document.getElementById('numCot').innerText || '').trim();
+        const m = actual.match(/^(\D*)/);
+        const prefijo = (m && m[1]) ? m[1] : 'AID';
+        return prefijo + String(json.numero).padStart(5,'0');
+      }
+    }catch(e){ /* si falla, se usa el cálculo local de respaldo */ }
+    // respaldo: si el servidor no tiene la acción "siguienteNumero" (Code.gs desactualizado)
+    // o falló la conexión, al menos sincronizamos la lista antes de calcular localmente
+    await sincronizarGuardadasDesdeBackend();
+  }
+  return siguienteNumCot();
+}
+
+async function copiarCotizacion(numCot){
   const lista = obtenerGuardadas();
   const datos = lista.find(c => c.numCot === numCot);
   if(!datos) return;
-  const nuevoNumero = siguienteNumCot();
+  const nuevoNumero = await siguienteNumCotSeguro();
   document.getElementById('numCot').innerText = nuevoNumero;
   const hoy = new Date();
   document.getElementById('fecha').innerText = String(hoy.getDate()).padStart(2,'0') + '/' + String(hoy.getMonth()+1).padStart(2,'0') + '/' + hoy.getFullYear();
@@ -1180,6 +1203,7 @@ function cargarCotizacion(numCot){
 }
 
 async function eliminarCotizacion(numCot){
+  if(!pedirClave('Vas a eliminar la cotización ' + numCot + ' guardada.')) return;
   if(!confirm('¿Eliminar la cotización ' + numCot + ' guardada? Esta acción no se puede deshacer.')) return;
   let lista = obtenerGuardadas();
   lista = lista.filter(c => c.numCot !== numCot);
@@ -1302,6 +1326,39 @@ actualizarContador();
 /* ---------- CATÁLOGOS PARA AUTOCOMPLETAR (clientes y productos) ---------- */
 const CAT_CLIENTES_KEY = 'aid_catalogo_clientes_v1';
 const CAT_PRODUCTOS_KEY = 'aid_catalogo_productos_v1';
+
+async function sincronizarCatalogoDesdeBackend(){
+  const url = obtenerBackendUrl();
+  if(!url) return;
+  try{
+    const [resProd, resCli] = await Promise.all([
+      fetch(url + '?action=listarProductos'),
+      fetch(url + '?action=listarClientes')
+    ]);
+    const jsonProd = await resProd.json();
+    const jsonCli = await resCli.json();
+
+    if(jsonProd.ok && Array.isArray(jsonProd.data)){
+      const combinadoP = {};
+      obtenerCatalogoProductos().forEach(p => { if(p.nombre) combinadoP[p.nombre.toLowerCase()] = p; });
+      jsonProd.data.forEach(p => {
+        if(p.nombre) combinadoP[String(p.nombre).toLowerCase()] = {
+          nombre: p.nombre, precio: Number(p.precio) || 0, fecha: p.fecha || null
+        };
+      });
+      guardarCatalogoProductos(Object.values(combinadoP));
+    }
+
+    if(jsonCli.ok && Array.isArray(jsonCli.data)){
+      const combinadoC = {};
+      obtenerCatalogoClientes().forEach(c => { if(c.nombre) combinadoC[c.nombre.toLowerCase()] = c; });
+      jsonCli.data.forEach(c => { if(c.nombre) combinadoC[String(c.nombre).toLowerCase()] = c; });
+      guardarCatalogoClientes(Object.values(combinadoC));
+    }
+
+    poblarDatalists();
+  }catch(e){ /* si falla, se sigue trabajando con lo que haya localmente */ }
+}
 
 function obtenerCatalogoClientes(){
   try{ return JSON.parse(localStorage.getItem(CAT_CLIENTES_KEY) || '[]'); }catch(e){ return []; }
@@ -1436,6 +1493,12 @@ document.getElementById('inputCatalogo').addEventListener('change', (e)=>{
 
 poblarDatalists();
 
+setTimeout(()=>{
+  if(obtenerBackendUrl()){
+    sincronizarCatalogoDesdeBackend();
+  }
+}, 0);
+
 const CLAVE_ACCIONES_SENSIBLES = '1234';
 
 function pedirClave(mensaje){
@@ -1473,13 +1536,20 @@ async function sincronizarProductoBackend(producto){
   }catch(e){ /* si falla, el producto igual queda guardado localmente */ }
 }
 
-document.getElementById('btnConfigBackend').addEventListener('click', ()=>{
+document.getElementById('btnConfigBackend').addEventListener('click', async ()=>{
   if(!pedirClave('Vas a cambiar la conexión con tu Google Sheet (backend).')) return;
   const actual = obtenerBackendUrl();
   const nueva = prompt('Pega la URL de tu Apps Script (termina en /exec):', actual);
   if(nueva === null) return;
   localStorage.setItem(BACKEND_URL_KEY, nueva.trim());
-  alert(nueva.trim() ? 'Backend conectado.' : 'Backend desconectado.');
+  if(nueva.trim()){
+    alert('Backend conectado. Trayendo tu catálogo y cotizaciones de la nube, un momento…');
+    await sincronizarCatalogoDesdeBackend();
+    await sincronizarGuardadasDesdeBackend();
+    alert('Listo. Ya tienes tu catálogo y cotizaciones sincronizados en este dispositivo.');
+  }else{
+    alert('Backend desconectado.');
+  }
 });
 
 let fechaCorreoSeleccionado = null; // fecha real del correo activo, o null si se pegó texto a mano
