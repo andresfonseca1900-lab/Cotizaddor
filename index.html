@@ -1143,7 +1143,7 @@ async function siguienteNumCotSeguro(){
   const url = obtenerBackendUrl();
   if(url){
     try{
-      const res = await fetch(url + '?action=siguienteNumero');
+      const res = await fetch(url + '?action=siguienteNumero&_ts=' + Date.now(), {cache:'no-store'});
       const json = await res.json();
       if(json.ok && json.numero){
         const actual = (document.getElementById('numCot').innerText || '').trim();
@@ -1247,7 +1247,7 @@ async function sincronizarGuardadasDesdeBackend(){
   const url = obtenerBackendUrl();
   if(!url) return;
   try{
-    const res = await fetch(url + '?action=listarCotizaciones');
+    const res = await fetch(url + '?action=listarCotizaciones&_ts=' + Date.now(), {cache:'no-store'});
     const json = await res.json();
     if(!json.ok || !Array.isArray(json.data)) return;
     const local = obtenerGuardadas();
@@ -1332,8 +1332,8 @@ async function sincronizarCatalogoDesdeBackend(){
   if(!url) return;
   try{
     const [resProd, resCli] = await Promise.all([
-      fetch(url + '?action=listarProductos'),
-      fetch(url + '?action=listarClientes')
+      fetch(url + '?action=listarProductos&_ts=' + Date.now(), {cache:'no-store'}),
+      fetch(url + '?action=listarClientes&_ts=' + Date.now(), {cache:'no-store'})
     ]);
     const jsonProd = await resProd.json();
     const jsonCli = await resCli.json();
@@ -1578,7 +1578,7 @@ document.getElementById('btnBuscarGmail').addEventListener('click', async ()=>{
   }
   cont.innerHTML = '<div class="modal-vacio">Buscando en Gmail…</div>';
   try{
-    const res = await fetch(url + '?action=buscarCorreos');
+    const res = await fetch(url + '?action=buscarCorreos&_ts=' + Date.now(), {cache:'no-store'});
     const json = await res.json();
     if(!json.ok) throw new Error(json.error || 'error desconocido');
     if(!json.data.length){
