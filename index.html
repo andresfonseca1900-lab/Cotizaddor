@@ -33,31 +33,51 @@
   }
 
   .toolbar{
+    position:sticky; top:8px; z-index:40;
     max-width:960px;
     margin:0 auto 18px auto;
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    justify-content:flex-end;
-  }
-  .toolbar button{
+    display:flex; align-items:center; gap:4px;
     background:var(--navy);
-    color:#fff;
-    border:1px solid var(--navy);
-    padding:10px 18px;
-    border-radius:2px;
-    font-family:'Oswald',sans-serif;
-    font-size:13px;
-    letter-spacing:.08em;
-    text-transform:uppercase;
-    cursor:pointer;
-    font-weight:600;
+    border-radius:8px;
+    padding:8px 10px;
+    box-shadow:0 6px 22px rgba(11,27,48,.28);
   }
-  .toolbar button:hover{background:var(--navy-2);}
-  .toolbar button.secondary{background:transparent;color:var(--navy);}
-  .toolbar button.secondary:hover{background:var(--navy);color:#fff;}
-  .toolbar button.accent{background:var(--brass);border-color:var(--brass);color:var(--navy);}
-  .toolbar button.accent:hover{background:var(--brass-light);}
+  .tb-marca{display:flex; align-items:baseline; gap:8px; margin-right:auto; padding-left:4px;}
+  .tb-logo{font-family:'Oswald',sans-serif; font-weight:700; font-size:15px; letter-spacing:.14em; color:var(--brass-light);}
+  .tb-nombre{font-family:'Oswald',sans-serif; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#9fb0c6;}
+  .tb-sep{width:1px; height:22px; background:rgba(255,255,255,.18); margin:0 6px;}
+  .tb-btn{
+    display:inline-flex; align-items:center; gap:7px;
+    background:transparent; color:#dfe6f0; border:1px solid transparent;
+    padding:9px 12px; border-radius:6px;
+    font-family:'Oswald',sans-serif; font-size:12.5px; font-weight:600;
+    letter-spacing:.07em; text-transform:uppercase; cursor:pointer;
+    transition:background .15s, transform .1s;
+  }
+  .tb-btn .txt{white-space:nowrap;}
+  .corto{display:none;}
+  .tb-btn:hover{background:rgba(255,255,255,.12);}
+  .tb-btn:active{transform:scale(.96);}
+  .tb-btn .ico{font-size:15px; line-height:1;}
+  .tb-btn.primario{background:var(--brass); color:var(--navy);}
+  .tb-btn.primario:hover{background:var(--brass-light);}
+  .tb-btn.contorno{border-color:var(--brass-light); color:var(--brass-light);}
+  .tb-btn.contorno:hover{background:rgba(230,198,92,.15);}
+  .cuenta{background:var(--brass); color:var(--navy); border-radius:10px; padding:1px 7px; font-size:11px; font-weight:700;}
+  .tb-mas{position:relative;}
+  .tb-menu{
+    display:none; position:absolute; right:0; top:calc(100% + 10px);
+    background:#fff; border-radius:8px; min-width:240px; padding:6px;
+    box-shadow:0 12px 34px rgba(11,27,48,.35);
+  }
+  .tb-menu.abierto{display:block;}
+  .tb-item{
+    display:flex; align-items:center; gap:10px; width:100%;
+    background:transparent; border:0; color:var(--navy); text-align:left;
+    padding:11px 12px; border-radius:6px; cursor:pointer;
+    font-family:'Inter',Arial,sans-serif; font-size:14px; font-weight:500;
+  }
+  .tb-item:hover{background:#eef1f6;}
 
   #hoja{
     position:relative;
@@ -602,6 +622,22 @@
     #hoja{ border:1px solid var(--navy); }
   }
   @media (max-width:640px){
+    body{padding-bottom:96px;}
+    .toolbar{
+      position:fixed; top:auto; left:0; right:0; bottom:0; max-width:none; margin:0;
+      border-radius:14px 14px 0 0; padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+      justify-content:space-around; gap:0;
+    }
+    .tb-marca, .tb-sep, .largo{display:none;}
+    .corto{display:inline;}
+    .tb-btn{flex:1; min-width:0; flex-direction:column; gap:3px; padding:6px 2px; font-size:9.5px; letter-spacing:.03em; position:relative;}
+    .tb-btn .ico{font-size:19px;}
+    .tb-btn.primario{border-radius:10px;}
+    .tb-btn.contorno{border-color:transparent;}
+    .cuenta{position:absolute; top:0; right:8px; padding:0 5px; font-size:9px;}
+    .tb-mas{flex:1; display:flex;}
+    .tb-mas .tb-btn{width:100%;}
+    .tb-menu{top:auto; bottom:calc(100% + 10px); right:6px;}
     .header-inner{flex-direction:column; align-items:flex-start;}
     .cliente-grid{grid-template-columns:1fr;}
     .title-block{flex-direction:column;}
@@ -615,16 +651,22 @@
 <body>
 
 <div class="toolbar">
-  <button class="secondary" id="btnMisCot">📂 Mis cotizaciones (<span id="contGuardadas">0</span>)</button>
-  <button class="secondary" id="btnNueva">Nueva cotización</button>
-  <button id="btnAgregar">+ Agregar producto</button>
-  <button class="accent" id="btnGuardar">💾 Guardar cotización</button>
-  <button class="accent" id="btnImprimir">Imprimir / Guardar PDF</button>
-  <button class="secondary" id="btnAbrirCorreo">📧 Revisar solicitud</button>
-  <button class="secondary chico" id="btnConfigBackend" title="Conectar con Google Sheet / Gmail">⚙ Backend</button>
-  <label class="secondary chico importar-label" style="margin-left:4px;">📄 Cargar cotización (PDF)
-    <input type="file" id="inputPdfCotizacion" accept=".pdf" style="display:none;">
-  </label>
+  <div class="tb-marca"><span class="tb-logo">AID</span><span class="tb-nombre">Cotizador</span></div>
+  <button class="tb-btn" id="btnMisCot"><span class="ico">📂</span><span class="txt"><span class="largo">Cotizaciones</span><span class="corto">Guardadas</span></span><span class="cuenta" id="contGuardadas">0</span></button>
+  <button class="tb-btn" id="btnNueva"><span class="ico">➕</span><span class="txt">Nueva</span></button>
+  <button class="tb-btn" id="btnAbrirCorreo"><span class="ico">📧</span><span class="txt"><span class="largo">Revisar </span>solicitud</span></button>
+  <span class="tb-sep"></span>
+  <button class="tb-btn primario" id="btnGuardar"><span class="ico">💾</span><span class="txt">Guardar</span></button>
+  <button class="tb-btn contorno" id="btnImprimir"><span class="ico">🖨️</span><span class="txt">Imprimir</span></button>
+  <div class="tb-mas">
+    <button class="tb-btn" id="btnMas" aria-haspopup="true" aria-expanded="false"><span class="ico">⋯</span><span class="txt">Más</span></button>
+    <div class="tb-menu" id="menuMas">
+      <label class="tb-item">📄 Cargar cotización (PDF)
+        <input type="file" id="inputPdfCotizacion" accept=".pdf" style="display:none;">
+      </label>
+      <button class="tb-item" id="btnConfigBackend" title="Conectar con Google Sheet / Gmail">⚙ Conectar con Google Sheet</button>
+    </div>
+  </div>
 </div>
 
 <div id="modalCorreo" class="modal-overlay">
@@ -964,7 +1006,20 @@ function actualizarFlechas(){
   });
 }
 
-document.getElementById('btnAgregar').addEventListener('click', ()=>crearFila());
+(function(){
+  const btnMas = document.getElementById('btnMas');
+  const menu = document.getElementById('menuMas');
+  function cerrar(){ menu.classList.remove('abierto'); btnMas.setAttribute('aria-expanded','false'); }
+  btnMas.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const abre = !menu.classList.contains('abierto');
+    menu.classList.toggle('abierto', abre);
+    btnMas.setAttribute('aria-expanded', abre ? 'true' : 'false');
+  });
+  menu.addEventListener('click', ()=>setTimeout(cerrar, 0));
+  document.addEventListener('click', (e)=>{ if(!menu.contains(e.target)) cerrar(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') cerrar(); });
+})();
 document.getElementById('btnAgregar2').addEventListener('click', ()=>crearFila());
 document.getElementById('btnImprimir').addEventListener('click', ()=>window.print());
 
@@ -1522,8 +1577,13 @@ document.getElementById('btnVaciarCatalogo').addEventListener('click', ()=>{
 /* ================== MÓDULO: verificación de referencia (catálogo + correo) ================== */
 
 const BACKEND_URL_KEY = 'aid_backend_url';
+// Pega aquí entre las comillas la URL de tu Apps Script (termina en /exec).
+// Con eso, cualquier dispositivo nuevo se conecta solo a tu Google Sheet.
+const BACKEND_URL_PREDETERMINADA = 'https://script.google.com/macros/s/AKfycbyO_edCXIboREfA_ZR5cuJ-mDFr4PMCM1EV_aCvyWGZajva3pxlf-S5Fu5Q0V0LWxMuqw/exec';
 
-function obtenerBackendUrl(){ return localStorage.getItem(BACKEND_URL_KEY) || ''; }
+function obtenerBackendUrl(){
+  return localStorage.getItem(BACKEND_URL_KEY) || BACKEND_URL_PREDETERMINADA || '';
+}
 
 async function sincronizarProductoBackend(producto){
   const url = obtenerBackendUrl();
