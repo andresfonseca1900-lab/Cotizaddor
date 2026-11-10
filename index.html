@@ -548,6 +548,30 @@
   .btn-cargar{background:var(--navy); color:#fff;}
   .btn-eliminar{background:var(--red); color:#fff;}
   .modal-vacio{padding:24px 6px; color:var(--ink-soft); font-size:13.5px; text-align:center;}
+  .fila-guardada{flex-wrap:wrap;}
+  .filtros-estado{display:flex; gap:6px; flex-wrap:wrap; padding:10px 14px 4px;}
+  .chip-estado{
+    border:1px solid var(--paper-line); background:#fff; color:var(--ink-soft);
+    border-radius:999px; padding:5px 12px; font-family:'Inter',sans-serif; font-size:12px; cursor:pointer;
+  }
+  .chip-estado.activo{background:var(--navy); border-color:var(--navy); color:#fff;}
+  .badge-estado{
+    display:inline-block; margin-left:6px; padding:1px 9px; border-radius:999px;
+    font-family:'Inter',sans-serif; font-size:11px; font-weight:600; vertical-align:middle;
+  }
+  .e-Enviada{background:#e6e7eb; color:#4a4f58;}
+  .e-Aprobada{background:#fce8b2; color:#7a5b00;}
+  .e-Facturada{background:#b7e1cd; color:#1d4d37;}
+  .e-Perdida{background:#f4c7c3; color:#7a1f18;}
+  .sel-estado{
+    font-family:'Inter',sans-serif; font-size:12px; padding:5px 6px; border:1px solid var(--paper-line);
+    border-radius:4px; background:#fff; color:var(--navy);
+  }
+  .fila-guardada .sug-factura{color:var(--ok); font-weight:600;}
+  .fila-guardada .sug-factura button{
+    margin-left:6px; padding:3px 10px; border:none; border-radius:3px; background:var(--ok); color:#fff;
+    font-family:'Oswald',sans-serif; font-size:11px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer;
+  }
 
   .correo-item{
     border:1px solid var(--paper-line); border-radius:4px; padding:8px 10px; margin-bottom:6px;
@@ -696,6 +720,7 @@
       <span>Cotizaciones guardadas</span>
       <button id="btnCerrarModal" class="cerrar-x">✕</button>
     </div>
+    <div id="filtrosEstado" class="filtros-estado"></div>
     <div id="listaGuardadas" class="modal-lista"></div>
     <div class="modal-foot">
       <button id="btnExportar" class="secondary chico">⬇ Exportar respaldo (.json)</button>
@@ -1137,8 +1162,10 @@ function recopilarDatosActuales(){
       cantidad: parseNumero(filaNumeros.querySelector('.cantidad').value)
     });
   });
+  const numActual = document.getElementById('numCot').innerText.trim();
+  const previo = obtenerGuardadas().find(c => c.numCot === numActual) || {};
   return {
-    numCot: document.getElementById('numCot').innerText.trim(),
+    numCot: numActual,
     fecha: document.getElementById('fecha').innerText.trim(),
     cliente: document.getElementById('cliente').value.trim(),
     nit: document.getElementById('nit').value.trim(),
@@ -1151,6 +1178,8 @@ function recopilarDatosActuales(){
     observaciones: document.getElementById('observaciones').value.trim(),
     filas: filas,
     total: document.getElementById('total').innerText,
+    estado: previo.estado || 'Enviada',
+    factura: previo.factura || '',
     guardadoEn: new Date().toISOString()
   };
 }
@@ -1276,26 +1305,116 @@ function actualizarContador(){
   document.getElementById('contGuardadas').innerText = obtenerGuardadas().length;
 }
 
+/* ---------- Estado de la cotización y cruce con facturas ---------- */
+const ESTADOS = ['Enviada','Aprobada','Facturada','Perdida'];
+let FILTRO_ESTADO = 'Todas';
+let VENTAS_CACHE = null;
+
+function estadoDe(c){ return ESTADOS.includes(c.estado) ? c.estado : 'Enviada'; }
+function escAttr(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+
+function filtrarEstado(e){ FILTRO_ESTADO = e; renderListaGuardadas(); }
+
+async function cargarVentasFacturadas(){
+  const url = obtenerBackendUrl();
+  if(!url) return;
+  try{
+    const res = await fetch(url + '?action=listarVentas&_ts=' + Date.now(), {cache:'no-store'});
+    const json = await res.json();
+    if(json.ok && Array.isArray(json.data)){
+      VENTAS_CACHE = json.data
+        .filter(v => v.tipo !== 'NotaCredito' && v.numero)
+        .map(v => ({ numero:String(v.numero), cliente:v.cliente || '', total:Number(v.total) || 0, fecha:new Date(v.fecha) }));
+    }
+  }catch(e){ /* sin sugerencias de factura si falla */ }
+}
+
+function fechaCot(str){
+  const m = String(str||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return m ? new Date(+m[3], +m[2]-1, +m[1]) : null;
+}
+function nombresParecidos(a, b){
+  const A = new Set(normalizarTexto(a).split(' ').filter(w => w.length > 2));
+  const B = normalizarTexto(b).split(' ').filter(w => w.length > 2);
+  if(!A.size || !B.length) return false;
+  return B.filter(w => A.has(w)).length / Math.min(A.size, B.length) >= 0.5;
+}
+// Busca una factura ya emitida que cuadre con la cotización: mismo cliente, mismo total (±5 pesos) y fecha igual o posterior.
+function facturaProbable(c, usadas){
+  if(!VENTAS_CACHE) return null;
+  const total = parseNumero(c.total);
+  const f0 = fechaCot(c.fecha);
+  if(!total || !f0) return null;
+  const candidatas = VENTAS_CACHE.filter(v =>
+    !usadas.has(v.numero) &&
+    Math.abs(v.total - total) <= 5 &&
+    nombresParecidos(c.cliente, v.cliente) &&
+    v.fecha.getTime() >= f0.getTime() - 2*86400000
+  ).sort((x,y) => x.fecha - y.fecha);
+  return candidatas[0] || null;
+}
+
+async function cambiarEstado(numCot, estado, factura){
+  const lista = obtenerGuardadas();
+  const c = lista.find(x => x.numCot === numCot);
+  if(!c) return;
+  c.estado = estado;
+  if(factura !== undefined) c.factura = factura;
+  if(estado !== 'Facturada' && factura === undefined) c.factura = c.factura || '';
+  guardarLista(lista);
+  renderListaGuardadas();
+  const url = obtenerBackendUrl();
+  if(url){
+    try{
+      await fetch(url, { method:'POST', body: JSON.stringify({ action:'actualizarCotizacion', payload:{ numCot, estado:c.estado, factura:c.factura || '' } }) });
+    }catch(e){ /* queda en este dispositivo; se reintenta al volver a cambiarlo */ }
+  }
+}
+function vincularFactura(numCot, numeroFactura){ cambiarEstado(numCot, 'Facturada', numeroFactura); }
+
 function renderListaGuardadas(){
   const cont = document.getElementById('listaGuardadas');
-  const lista = obtenerGuardadas();
-  if(lista.length === 0){
+  const todas = obtenerGuardadas();
+  const filtros = document.getElementById('filtrosEstado');
+  if(filtros){
+    const cuenta = e => e === 'Todas' ? todas.length : todas.filter(c => estadoDe(c) === e).length;
+    filtros.innerHTML = ['Todas', ...ESTADOS].map(e =>
+      `<button class="chip-estado${FILTRO_ESTADO===e?' activo':''}" onclick="filtrarEstado('${e}')">${e} (${cuenta(e)})</button>`
+    ).join('');
+  }
+  const lista = FILTRO_ESTADO === 'Todas' ? todas : todas.filter(c => estadoDe(c) === FILTRO_ESTADO);
+  if(todas.length === 0){
     cont.innerHTML = '<div class="modal-vacio">Todavía no tienes cotizaciones guardadas.</div>';
     return;
   }
-  cont.innerHTML = lista.map(c => `
+  if(lista.length === 0){
+    cont.innerHTML = '<div class="modal-vacio">No hay cotizaciones en estado ' + FILTRO_ESTADO + '.</div>';
+    return;
+  }
+  const usadas = new Set(todas.map(c => c.factura).filter(Boolean));
+  cont.innerHTML = lista.map(c => {
+    const est = estadoDe(c);
+    const sug = est !== 'Facturada' && est !== 'Perdida' ? facturaProbable(c, usadas) : null;
+    const n = escAttr(c.numCot);
+    return `
     <div class="fila-guardada">
       <div class="info">
         <b>${c.numCot}</b> — ${c.cliente || 'Sin cliente'}
-        <small>${c.fecha || ''} · ${c.total || ''}</small>
+        <span class="badge-estado e-${est}">${est}</span>
+        <small>${c.fecha || ''} · ${c.total || ''}${c.factura ? ' · Factura ' + c.factura : ''}</small>
+        ${sug ? `<small class="sug-factura">Posible factura ${sug.numero} (${formatoCOP(sug.total)})<button onclick="vincularFactura('${n}','${escAttr(sug.numero)}')">Vincular</button></small>` : ''}
       </div>
       <div class="acciones">
+        <select class="sel-estado" onchange="cambiarEstado('${n}', this.value)" title="Estado">
+          ${ESTADOS.map(e => `<option value="${e}"${e===est?' selected':''}>${e}</option>`).join('')}
+        </select>
         <button class="btn-cargar" onclick="cargarCotizacion('${c.numCot.replace(/'/g,"\\'")}')">Abrir</button>
         <button class="btn-cargar" style="background:var(--brass); color:#1a1a1a;" onclick="copiarCotizacion('${c.numCot.replace(/'/g,"\\'")}')">Copiar</button>
         <button class="btn-eliminar" onclick="eliminarCotizacion('${c.numCot.replace(/'/g,"\\'")}')">Eliminar</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function sincronizarGuardadasDesdeBackend(){
@@ -1308,7 +1427,12 @@ async function sincronizarGuardadasDesdeBackend(){
     const local = obtenerGuardadas();
     const combinado = {};
     local.forEach(c => { if(c.numCot) combinado[c.numCot] = c; });
-    json.data.forEach(c => { if(c.numCot) combinado[c.numCot] = c; }); // el backend manda (fuente confiable)
+    json.data.forEach(c => {
+      if(!c.numCot) return;
+      const loc = combinado[c.numCot];
+      // el backend manda (fuente confiable), pero si aún no guarda el estado, se conserva el de este dispositivo
+      combinado[c.numCot] = (loc && loc.estado && !c.estado) ? Object.assign({}, c, {estado:loc.estado, factura:loc.factura || ''}) : c;
+    });
     guardarLista(Object.values(combinado));
   }catch(e){ /* si falla, se sigue mostrando lo que haya en el navegador */ }
 }
@@ -1320,6 +1444,9 @@ function abrirModal(){
   if(url){
     document.getElementById('listaGuardadas').insertAdjacentHTML('afterbegin', '<div class="modal-vacio" id="avisoSincronizando">🔄 Sincronizando con tu Google Sheet…</div>');
     sincronizarGuardadasDesdeBackend().then(()=>{
+      renderListaGuardadas();
+      return cargarVentasFacturadas();
+    }).then(()=>{
       renderListaGuardadas();
     });
   }
