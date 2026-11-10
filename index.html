@@ -1704,13 +1704,46 @@ document.getElementById('btnVaciarCatalogo').addEventListener('click', ()=>{
 /* ================== MÓDULO: verificación de referencia (catálogo + correo) ================== */
 
 const BACKEND_URL_KEY = 'aid_backend_url';
-// Pega aquí entre las comillas la URL de tu Apps Script (termina en /exec).
-// Con eso, cualquier dispositivo nuevo se conecta solo a tu Google Sheet.
-const BACKEND_URL_PREDETERMINADA = 'https://script.google.com/macros/s/AKfycbyO_edCXIboREfA_ZR5cuJ-mDFr4PMCM1EV_aCvyWGZajva3pxlf-S5Fu5Q0V0LWxMuqw/exec';
+// NO pegues aquí la URL de tu Apps Script: este archivo es público en GitHub Pages y cualquiera podría leerla.
+// La URL se guarda solo en cada dispositivo, desde ⚙ Conectar con Google Sheet.
+const BACKEND_URL_PREDETERMINADA = '';
 
 function obtenerBackendUrl(){
   return localStorage.getItem(BACKEND_URL_KEY) || BACKEND_URL_PREDETERMINADA || '';
 }
+
+/* ---- Seguridad: clave de acceso al backend ----
+   La clave se guarda solo en este dispositivo (nunca va escrita en este archivo, que es público).
+   Toda llamada al Apps Script viaja por POST con la clave dentro del cuerpo (no en la dirección). */
+const CLAVE_ACCESO_KEY = 'aid_clave_acceso';
+function obtenerClaveAcceso(){ return localStorage.getItem(CLAVE_ACCESO_KEY) || ''; }
+let avisoNoAutorizadoMostrado = false;
+const _fetchOriginal = window.fetch.bind(window);
+window.fetch = function(input, init){
+  const url = typeof input === 'string' ? input : ((input && input.url) || '');
+  const base = obtenerBackendUrl();
+  if(!base || url.indexOf(base) !== 0) return _fetchOriginal(input, init);
+  init = Object.assign({}, init || {});
+  let body = {};
+  if(String(init.method || 'GET').toUpperCase() === 'POST'){
+    try{ body = JSON.parse(init.body); }catch(e){ body = {}; }
+  }else{
+    new URLSearchParams(url.split('?')[1] || '').forEach((v, k)=>{ if(k !== '_ts') body[k] = v; });
+    init.method = 'POST';
+    delete init.cache;
+  }
+  body.clave = obtenerClaveAcceso();
+  init.body = JSON.stringify(body);
+  return _fetchOriginal(base, init).then(res=>{
+    res.clone().json().then(j=>{
+      if(j && j.error === 'No autorizado' && !avisoNoAutorizadoMostrado){
+        avisoNoAutorizadoMostrado = true;
+        alert('El backend rechazó la clave de acceso. Ve a ⋯ Más → Conectar con Google Sheet y escribe la clave correcta.');
+      }
+    }).catch(()=>{});
+    return res;
+  });
+};
 
 async function sincronizarProductoBackend(producto){
   const url = obtenerBackendUrl();
@@ -1728,6 +1761,12 @@ document.getElementById('btnConfigBackend').addEventListener('click', async ()=>
   const actual = obtenerBackendUrl();
   const nueva = prompt('Pega la URL de tu Apps Script (termina en /exec):', actual);
   if(nueva === null) return;
+  if(nueva.trim()){
+    const clave = prompt('Escribe la clave de acceso de tu backend (la genera tu Apps Script; se guarda solo en este dispositivo):', obtenerClaveAcceso());
+    if(clave === null) return;
+    localStorage.setItem(CLAVE_ACCESO_KEY, clave.trim());
+    avisoNoAutorizadoMostrado = false;
+  }
   localStorage.setItem(BACKEND_URL_KEY, nueva.trim());
   if(nueva.trim()){
     alert('Backend conectado. Trayendo tu catálogo y cotizaciones de la nube, un momento…');
