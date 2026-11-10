@@ -2259,9 +2259,14 @@ function escH(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;
 async function llamarBackend(action, payload){
   const url = obtenerBackendUrl();
   if(!url) throw new Error('Primero conecta tu Google Sheet: ⋯ Más → Conectar con Google Sheet.');
-  const res = await fetch(url, { method:'POST', body: JSON.stringify({ action, payload }) });
-  const j = await res.json();
-  if(!j.ok) throw new Error(j.error || 'Error del servidor');
+  let j;
+  try{
+    const res = await fetch(url, { method:'POST', body: JSON.stringify({ action, payload }) });
+    j = await res.json();
+  }catch(e){
+    throw new Error('No se pudo conectar con tu Google Sheet. Casi seguro la dirección guardada en este dispositivo es la vieja: ve a ⋯ Más → Conectar con Google Sheet y pega la URL nueva y la clave.');
+  }
+  if(!j.ok) throw new Error(j.error === 'No autorizado' ? 'La clave de acceso es incorrecta o falta: ve a ⋯ Más → Conectar con Google Sheet.' : (j.error || 'Error del servidor'));
   return j.data;
 }
 
